@@ -139,16 +139,20 @@ PositionBacktester(
 from indicators.base import BaseIndicator
 
 class MyIndicator(BaseIndicator):
-    name = "my_indicator"
-    requires = []  # 依赖指标列表
-
-    @classmethod
-    def calculate(cls, curve, cache):
-        # 指标计算逻辑
+    @property
+    def name(self) -> str:
+        return "my_indicator"
+    
+    @property
+    def requires(self) -> set:
+        return set()  # Required indicators set
+    
+    def calculate(self, curve: pl.Series, cache: Dict) -> float:
+        # Indicator calculation logic
         return result
 
-# 注册指标
-backtester.add_indicator(MyIndicator)
+# Register indicator
+backtester.add_indicator(MyIndicator())
 ```
 
 ## 注意事项

@@ -122,14 +122,21 @@ PositionBacktester(
 ### Adding Custom Indicators
 
 ```python
+### Adding Custom Indicators
+
+```python
 from indicators.base import BaseIndicator
 
 class MyIndicator(BaseIndicator):
-    name = "my_indicator"
-    requires = []  # Required indicators list
-
-    @classmethod
-    def calculate(cls, curve, cache):
+    @property
+    def name(self) -> str:
+        return "my_indicator"
+    
+    @property
+    def requires(self) -> set:
+        return set()  # Required indicators set
+    
+    def calculate(self, curve: pl.Series, cache: Dict) -> float:
         # Indicator calculation logic
         return result
 
