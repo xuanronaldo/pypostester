@@ -6,8 +6,8 @@ import polars as pl
 from datetime import datetime
 import os
 from pathlib import Path
-from string import Template
 from core.backtester import PositionBacktester
+from .i18n import I18N
 
 
 class BacktestVisualizer:
@@ -29,16 +29,14 @@ class BacktestVisualizer:
         self.template_path = (
             Path(__file__).parent.parent / "templates" / "report_template.html"
         )
-        if not self.template_path.exists():
-            raise FileNotFoundError(f"Template file not found: {self.template_path}")
 
     def _generate_backtest_params_html(self) -> str:
         """生成回测参数HTML"""
         params = {
-            "手续费率": f"{self.backtester.commission:.3%}",
-            "年化交易日": f"{self.backtester.annual_trading_days}天",
-            "计算指标": (
-                "全部"
+            "commission_rate": f"{self.backtester.commission:.3%}",
+            "annual_trading_days": (f"{self.backtester.annual_trading_days} " "天"),
+            "indicators": (
+                "所有指标"
                 if self.backtester.indicators == "all"
                 else ", ".join(self.backtester.indicators)
             ),
@@ -67,6 +65,40 @@ class BacktestVisualizer:
             f'<div class="info-item"><span style="color: #666;">{k}:</span> {v}</div>'
             for k, v in info.items()
         )
+
+    def _generate_metrics_html(self) -> str:
+        """生成指标HTML"""
+        metrics_mapping = {
+            "annual_return": ("Annual Return", "年化收益率"),
+            "sharpe_ratio": ("Sharpe Ratio", "夏普比率"),
+            "max_drawdown": ("Maximum Drawdown", "最大回撤"),
+            "max_drawdown_duration": ("Max Drawdown Duration", "最大回撤持续期"),
+            "calmar_ratio": ("Calmar Ratio", "卡玛比率"),
+            "volatility": ("Annual Volatility", "年化波动率"),
+            "sortino_ratio": ("Sortino Ratio", "索提诺比率"),
+            "win_rate": ("Win Rate", "胜率"),
+        }
+
+        metrics_html = ""
+        for key, (en_name, zh_name) in metrics_mapping.items():
+            if key in self.results:
+                value = self.results[key]
+                if key in ["annual_return", "max_drawdown", "volatility", "win_rate"]:
+                    formatted_value = f"{value:.2%}"
+                elif key == "max_drawdown_duration":
+                    formatted_value = f"{value:.0f} days"
+                else:
+                    formatted_value = f"{value:.2f}"
+
+                metrics_html += f"""
+                <div class="metric-card">
+                    <div class="metric-value">{formatted_value}</div>
+                    <div class="metric-name" lang="en">{en_name}</div>
+                    <div class="metric-name" lang="zh">{zh_name}</div>
+                </div>
+                """
+
+        return metrics_html
 
     def create_funding_curve_figure(self) -> go.Figure:
         """创建资金曲线图"""
@@ -99,7 +131,7 @@ class BacktestVisualizer:
             # 创建回撤区间的数据
             dd_region = df[max_dd_start_idx : max_dd_end_idx + 1]
 
-            # 添加回撤区域（使用两条线形成填充区域）
+            # 添加回撤区域（使用两条线形成充区域）
             fig.add_trace(
                 go.Scatter(
                     x=dd_region["timestamp"],
@@ -150,9 +182,9 @@ class BacktestVisualizer:
 
         # 更新布局
         fig.update_layout(
-            title=dict(text="策略资金曲线", x=0.5, y=0.95),
-            xaxis_title="时间",
-            yaxis_title="净值",
+            title="Strategy NAV",
+            xaxis_title="Time",
+            yaxis_title="NAV",
             showlegend=True,
             hovermode="x unified",
             legend=dict(
@@ -202,9 +234,9 @@ class BacktestVisualizer:
         )
 
         fig.update_layout(
-            title="策略回撤",
-            xaxis_title="时间",
-            yaxis_title="回撤",
+            title="Strategy Drawdown",
+            xaxis_title="Time",
+            yaxis_title="Drawdown",
             showlegend=True,
             hovermode="x unified",
         )
@@ -234,9 +266,9 @@ class BacktestVisualizer:
         )
 
         fig.update_layout(
-            title="月度收益分布",
-            xaxis_title="月份",
-            yaxis_title="收益率",
+            title="Monthly Returns Distribution",
+            xaxis_title="Month",
+            yaxis_title="Returns",
             showlegend=True,
             hovermode="x unified",
             yaxis=dict(
@@ -251,67 +283,50 @@ class BacktestVisualizer:
         """生成HTML报告"""
         # 读取HTML模板
         with open(self.template_path, "r", encoding="utf-8") as f:
-            template = Template(f.read())
+            html_template = f.read()
 
-        # 生成回测参数和数据信息HTML
-        backtest_params = self._generate_backtest_params_html()
-        data_info = self._generate_data_info_html()
-
-        # 生成指标HTML
-        metrics_mapping = {
-            "annual_return": "年化收益率",
-            "sharpe_ratio": "夏普比率",
-            "max_drawdown": "最大回撤",
-            "max_drawdown_duration": "最大回撤持续期",
-            "calmar_ratio": "卡玛比率",
-            "volatility": "年化波动率",
-            "sortino_ratio": "索提诺比率",
-            "win_rate": "胜率",
-        }
-
-        metrics_html = ""
-        for key, name in metrics_mapping.items():
-            if key in self.results:
-                value = self.results[key]
-                if key in ["annual_return", "max_drawdown", "volatility", "win_rate"]:
-                    formatted_value = f"{value:.2%}"
-                elif key == "max_drawdown_duration":
-                    formatted_value = f"{value:.0f}天"
-                else:
-                    formatted_value = f"{value:.2f}"
-
-                metrics_html += f"""
-                <div class="metric-card">
-                    <div class="metric-value">{formatted_value}</div>
-                    <div class="metric-name">{name}</div>
-                </div>
-                """
+        # 准备数据
+        df = self.funding_curve.to_pandas()
+        start_date = df["timestamp"].min().strftime("%Y-%m-%d")
+        end_date = df["timestamp"].max().strftime("%Y-%m-%d")
+        total_days = (df["timestamp"].max() - df["timestamp"].min()).days
 
         # 生成图表
         funding_curve_fig = self.create_funding_curve_figure()
         drawdown_fig = self.create_drawdown_figure()
         monthly_returns_fig = self.create_monthly_returns_figure()
 
-        # 设置中文字体
-        for fig in [funding_curve_fig, drawdown_fig, monthly_returns_fig]:
-            fig.update_layout(font=dict(family="Microsoft YaHei"))
+        # 准备替换变量
+        template_vars = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "commission": f"{self.backtester.commission:.3%}",
+            "trading_days": f"{self.backtester.annual_trading_days} days",
+            "indicators": (
+                "All"
+                if self.backtester.indicators == "all"
+                else ", ".join(self.backtester.indicators)
+            ),
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_days": f"{total_days} days",
+            "data_points": f"{len(df):,}",
+            "metrics_html": self._generate_metrics_html(),
+            "funding_curve_div": funding_curve_fig.to_html(
+                full_html=False, include_plotlyjs=False, config={"locale": "en"}
+            ),
+            "drawdown_div": drawdown_fig.to_html(
+                full_html=False, include_plotlyjs=False, config={"locale": "en"}
+            ),
+            "monthly_returns_div": monthly_returns_fig.to_html(
+                full_html=False, include_plotlyjs=False, config={"locale": "en"}
+            ),
+        }
 
-        # 生成HTML报告
-        html_content = template.substitute(
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            backtest_params=backtest_params,
-            data_info=data_info,
-            metrics_html=metrics_html,
-            funding_curve_div=funding_curve_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "zh-cn"}
-            ),
-            drawdown_div=drawdown_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "zh-cn"}
-            ),
-            monthly_returns_div=monthly_returns_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "zh-cn"}
-            ),
-        )
+        # 使用字符串格式化替换变量
+        html_content = html_template
+        for key, value in template_vars.items():
+            placeholder = f"${key}"
+            html_content = html_content.replace(placeholder, str(value))
 
         # 保存HTML文件
         with open(output_path, "w", encoding="utf-8", errors="xmlcharrefreplace") as f:

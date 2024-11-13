@@ -51,6 +51,7 @@ def run_backtest(
     commission: float = 0.001,
     annual_trading_days: int = 365,
     output_dir: str = "output",
+    lang: str = "zh_CN",
 ) -> None:
     """
     运行回测并生成报告
@@ -61,6 +62,7 @@ def run_backtest(
         commission: 手续费率
         annual_trading_days: 年化交易日数
         output_dir: 输出目录
+        lang: 语言代码，支持 'zh_CN' 和 'en_US'
     """
     try:
         # 创建输出目录
@@ -90,7 +92,8 @@ def run_backtest(
 
         # 生成可视化报告
         visualizer = BacktestVisualizer(results, backtester)
-        report_path = output_path / "btc_backtest_report.html"
+        report_name = f"btc_backtest_report.html"
+        report_path = output_path / report_name
         visualizer.generate_html_report(str(report_path))
 
         print(f"\n报告已生成: {report_path}")
@@ -109,7 +112,7 @@ def main():
     # 获取数据
     close, position = get_btc_data(start_date, end_date)
 
-    # 运行回测
+    # 运行英文回测
     run_backtest(
         close=close,
         position=position,
