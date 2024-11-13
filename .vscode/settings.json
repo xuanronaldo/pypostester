@@ -1,0 +1,7 @@
+{
+    "python.envFile": "${workspaceFolder}/.vscode/dev.env",
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.black-formatter",
+      "editor.formatOnSave": true
+    }
+}
