@@ -4,8 +4,16 @@
 A Python-based backtesting framework for evaluating trading strategies. The framework supports custom indicator calculations and provides comprehensive equity curve analysis.
 
 ## Installation
+### From PyPI
 ```bash
-pip install polars pandas numpy
+pip install pypostester
+```
+
+### From Source
+```bash
+git clone https://github.com/xuanronaldo/pypostester.git
+cd pypostester
+pip install -e .
 ```
 
 ## Quick Start

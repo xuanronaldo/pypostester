@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypostester"
+version = "0.1.0"
+authors = [
+    { name = "Xuan Ronaldo", email = "xuanronaldo@outlook.com" },
+]
+description = "A Python-based trading strategy backtesting framework"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "polars>=0.19.0",
+    "pandas>=1.5.0",
+    "numpy>=1.20.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/xuanronaldo/pypostester"
+"Bug Tracker" = "https://github.com/xuanronaldo/pypostester/issues" 

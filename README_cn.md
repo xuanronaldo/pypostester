@@ -3,9 +3,18 @@
 ## 项目简介
 这是一个基于Python的交易策略回测框架，用于评估交易策略的表现。框架支持自定义指标计算，提供完整的资金曲线分析功能。
 
-## 依赖安装
+## 安装
+
+### PyPI 安装
 ```bash
-pip install -r requirements.txt
+pip install pypostester
+```
+
+### 源码安装
+```bash
+git clone https://github.com/xuanronaldo/pypostester.git
+cd pypostester
+pip install -e .
 ```
 
 ## 快速开始
