@@ -31,13 +31,9 @@ class MaxDrawdownDuration(BaseIndicator):
             cummax = curve.cum_max()
             drawdown = (curve - cummax) / cummax
 
-            # 找到最大回撤结束点
             end_idx = drawdown.arg_min()
-
-            # 找到最大回撤开始点
             start_idx = curve[:end_idx].arg_max()
 
-            # 计算持续天数
             timestamps = cache["funding_curve"].get_column("timestamp")
             duration = (timestamps[end_idx] - timestamps[start_idx]).days
             cache["max_drawdown_duration"] = float(duration)
