@@ -1,54 +1,24 @@
-# PyPosTester
+# pypostester
 
 ## Introduction
-A Python-based backtesting framework for evaluating trading strategies. The framework supports custom indicator calculations and provides comprehensive equity curve analysis.
+A Python-based backtesting framework for evaluating trading strategies, supporting custom indicator calculations and providing comprehensive equity curve analysis and visualization capabilities.
 
 ## Installation
-### From PyPI
-```bash
-pip install pypostester
-```
 
-### From Source
 ```bash
-git clone https://github.com/xuanronaldo/pypostester.git
-cd pypostester
-pip install -e .
+# Install from PyPI
+pip install pypostester
 ```
 
 ## Quick Start
 
-```python
-from core.backtester import PositionBacktester
-import polars as pl
-
-# Prepare data
-close_prices = pl.Series([100, 101, 102, 101, 103])
-positions = pl.Series([0, 1, 1, 0, 1])
-
-# Create backtester instance
-backtester = PositionBacktester(
-    close=close_prices,
-    position=positions,
-    commission=0.001,  # 0.1% trading cost
-    annual_trading_days=252
-)
-
-# Run backtest
-results = backtester.run()
-```
-
-## Detailed Example
-
-### BTC Strategy Backtesting Example
-
-This example demonstrates how to backtest a simple Bitcoin strategy using the framework.
+Here's a complete example of backtesting a Bitcoin buy-and-hold strategy:
 
 ```python
-from core.backtester import PositionBacktester
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
+from pypostester.core import PositionBacktester
 
 # Get BTC historical data
 end_date = datetime.now()
@@ -65,53 +35,44 @@ backtester = PositionBacktester(
     position=position,
     commission=0.001,  # 0.1% trading cost
     annual_trading_days=365,  # Crypto trades all year
-    indicators="all"  # Calculate all available indicators
+    indicators="all"
 )
 
 # Run backtest
 results = backtester.run()
 
-# View main metrics
+# Print main metrics
 print(f"Annual Return: {results['annual_return']:.2%}")
 print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
 print(f"Max Drawdown: {results['max_drawdown']:.2%}")
+print(f"Max Drawdown Duration: {results['max_drawdown_duration']:.0f} days")
+print(f"Annual Volatility: {results['volatility']:.2%}")
+print(f"Win Rate: {results['win_rate']:.2%}")
 
-# Generate visual report
-from utils.visualization import BacktestVisualizer
+# Generate HTML report
+from pypostester.utils.visualization import BacktestVisualizer
 visualizer = BacktestVisualizer(results, backtester)
 visualizer.generate_html_report("btc_backtest_report.html")
 ```
 
-### Running the Example
-1. Install additional dependency:
-```bash
-pip install yfinance
-```
+## Features
 
-2. Run the example script:
-```bash
-python examples/backtest_btc.py
-```
+### 1. Easy-to-use API
+- Simple position-based backtesting
+- Comprehensive performance metrics
+- HTML report generation
 
-3. View results:
-- Main backtest metrics will be displayed in console
-- HTML backtest report will be generated in `examples/output` directory
-
-## Core Features
-
-### 1. Equity Curve Calculation
-- Supports position-based returns calculation
-- Includes transaction cost handling
-- Generates complete equity curve
-
-### 2. Indicator System
-- Supports built-in indicators
-- Allows custom indicator addition
-- Automatic indicator dependency resolution
+### 2. Performance Metrics
+- Annual return
+- Sharpe ratio
+- Maximum drawdown
+- Volatility
+- Win rate
+- And more...
 
 ### 3. Data Compatibility
-- Supports both Polars and Pandas data formats
-- Automatic data format conversion and validation
+- Supports Pandas and Polars
+- Compatible with various data sources
 
 ## API Reference
 
@@ -119,21 +80,18 @@ python examples/backtest_btc.py
 
 ```python
 PositionBacktester(
-    close: Union[pl.Series, pd.Series],    # Close price series
-    position: Union[pl.Series, pd.Series], # Position series
+    close: Union[pd.Series, pl.Series],    # Close price series
+    position: Union[pd.Series, pl.Series], # Position series
     commission: float = 0.0,               # Trading cost
     annual_trading_days: int = 252,        # Annual trading days
     indicators: Union[str, List[str]] = "all" # Indicators to calculate
 )
 ```
 
-### Adding Custom Indicators
+### Custom Indicators
 
 ```python
-### Adding Custom Indicators
-
-```python
-from indicators.base import BaseIndicator
+from pypostester.indicators.base import BaseIndicator
 
 class MyIndicator(BaseIndicator):
     @property
@@ -153,9 +111,9 @@ backtester.add_indicator(MyIndicator)
 ```
 
 ## Important Notes
-1. Ensure close price and position series have the same length
+1. Position values should be within [-1, 1] range
 2. Trading costs should be input as decimals (e.g., 0.001 for 0.1%)
-3. Position values should be within [-1, 1] range
+3. Ensure price and position series have matching indices
 
 ## Roadmap
 - [ ] Add more built-in indicators
