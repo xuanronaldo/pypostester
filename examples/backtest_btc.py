@@ -2,20 +2,8 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 from pathlib import Path
-import sys
-import warnings
-
-# 忽略特定的废弃警告
-warnings.filterwarnings(
-    "ignore", category=DeprecationWarning, message="np.find_common_type is deprecated"
-)
-
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
-
-from core.backtester import PositionBacktester
-from utils.visualization import BacktestVisualizer
+from pypostester.core import PositionBacktester
+from pypostester.utils.visualization import BacktestVisualizer
 
 
 def get_btc_data(start_date: datetime, end_date: datetime) -> tuple:

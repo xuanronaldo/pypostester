@@ -1,13 +1,9 @@
 from typing import Dict
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import pandas as pd
-import polars as pl
 from datetime import datetime
-import os
 from pathlib import Path
-from core.backtester import PositionBacktester
-from .i18n import I18N
+from pypostester.core.backtester import PositionBacktester
+from pypostester.utils.i18n import I18N
 
 
 class BacktestVisualizer:

@@ -1,7 +1,7 @@
 from typing import Dict
 import polars as pl
 import numpy as np
-from indicators.base import BaseIndicator
+from pypostester.indicators.base import BaseIndicator
 
 
 class AnnualReturn(BaseIndicator):

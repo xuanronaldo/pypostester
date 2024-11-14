@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypostester"
-version = "0.1.0"
+version = "0.1.5"
 authors = [
     { name = "Xuan Ronaldo", email = "xuanronaldo@outlook.com" },
 ]
 description = "A Python-based trading strategy backtesting framework"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -25,3 +25,7 @@ dependencies = [
 [project.urls]
 "Homepage" = "https://github.com/xuanronaldo/pypostester"
 "Bug Tracker" = "https://github.com/xuanronaldo/pypostester/issues" 
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["pypostester"]

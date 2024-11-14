@@ -2,7 +2,7 @@ from typing import Dict, Type
 import inspect
 from pathlib import Path
 from importlib import import_module
-from indicators.base import BaseIndicator
+from pypostester.indicators.base import BaseIndicator
 
 
 class IndicatorRegistry:
@@ -46,8 +46,8 @@ def register_builtin_indicators():
         )
 
     # 手动导入模块
-    from indicators import returns
-    from indicators import risks
+    from pypostester.indicators import returns
+    from pypostester.indicators import risks
 
     # 遍历模块中的所有类
     for module in [returns, risks]:

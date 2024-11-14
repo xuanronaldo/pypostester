@@ -2,9 +2,9 @@ from typing import Union, Dict, List
 import polars as pl
 import pandas as pd
 import numpy as np
-from indicators.registry import registry
-from indicators.base import BaseIndicator
-from utils.validation import validate_and_convert_input, ValidationError
+from pypostester.indicators.registry import registry
+from pypostester.indicators.base import BaseIndicator
+from pypostester.utils.validation import validate_and_convert_input, ValidationError
 
 
 class PositionBacktester:
