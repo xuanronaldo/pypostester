@@ -2,6 +2,7 @@ from typing import Dict
 import polars as pl
 import numpy as np
 from pypostester.indicators.base import BaseIndicator
+from pypostester.indicators.risks import Volatility
 
 
 class AnnualReturn(BaseIndicator):
@@ -25,19 +26,17 @@ class SharpeRatio(BaseIndicator):
 
     @property
     def requires(self) -> set:
-        return {"annual_return"}
+        return {"annual_return", "volatility"}
 
     def calculate(self, curve: pl.Series, cache: Dict) -> float:
         if "sharpe_ratio" not in cache:
-            if "returns" not in cache:
-                cache["returns"] = curve.pct_change()
+            if "volatility" not in cache:
+                volatility_indicator = Volatility()
+                cache["volatility"] = volatility_indicator.calculate(curve, cache)
 
-            annualization_factor = np.sqrt(365 / cache["total_days"])
-            cache["annual_vol"] = float(cache["returns"].std() * annualization_factor)
+            annual_vol = cache["volatility"]
 
             cache["sharpe_ratio"] = float(
-                cache["annual_return"] / cache["annual_vol"]
-                if cache["annual_vol"] != 0
-                else 0
+                cache["annual_return"] / annual_vol if annual_vol != 0 else 0
             )
         return cache["sharpe_ratio"]

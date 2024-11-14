@@ -39,7 +39,6 @@ def run_backtest(
     commission: float = 0.001,
     annual_trading_days: int = 365,
     output_dir: str = "output",
-    lang: str = "zh_CN",
 ) -> None:
     """
     运行回测并生成报告
@@ -50,7 +49,6 @@ def run_backtest(
         commission: 手续费率
         annual_trading_days: 年化交易日数
         output_dir: 输出目录
-        lang: 语言代码，支持 'zh_CN' 和 'en_US'
     """
     try:
         # 创建输出目录
@@ -95,12 +93,11 @@ def main():
     """主函数"""
     # 设置回测时间范围
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=365 * 2)  # 最近两年
+    start_date = end_date - timedelta(days=60)
 
     # 获取数据
     close, position = get_btc_data(start_date, end_date)
 
-    # 运行英文回测
     run_backtest(
         close=close,
         position=position,

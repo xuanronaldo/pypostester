@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypostester"
-version = "0.1.5"
+version = "0.1.6"
 authors = [
     { name = "Xuan Ronaldo", email = "xuanronaldo@outlook.com" },
 ]
 description = "A Python-based trading strategy backtesting framework"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
