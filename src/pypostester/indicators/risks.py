@@ -74,12 +74,10 @@ class Volatility(BaseIndicator):
             if "returns" not in cache:
                 cache["returns"] = curve.pct_change().drop_nulls()
 
-            # 计算波动率
             period_vol = float(cache["returns"].std())
             daily_factor = np.sqrt(len(cache["returns"]) / cache["total_days"])
             daily_vol = period_vol * daily_factor
 
-            # 计算年化波动率
             annualization_factor = np.sqrt(cache["annual_trading_days"])
             cache["volatility"] = daily_vol * annualization_factor
         return cache["volatility"]
