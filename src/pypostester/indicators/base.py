@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict
-import polars as pl
+from typing import Dict, Set
 
 
 class BaseIndicator(ABC):
@@ -12,12 +11,12 @@ class BaseIndicator(ABC):
         """指标名称"""
         pass
 
+    @property
+    def requires(self) -> Set[str]:
+        """依赖的其他指标"""
+        return set()
+
     @abstractmethod
-    def calculate(self, curve: pl.Series, cache: Dict) -> float:
+    def calculate(self, cache: Dict) -> float:
         """计算指标值"""
         pass
-
-    @property
-    def requires(self) -> set:
-        """返回该指标依赖的其他指标名称"""
-        return set()

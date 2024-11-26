@@ -4,37 +4,33 @@ import pandas as pd
 import numpy as np
 from pypostester.indicators.registry import registry
 from pypostester.indicators.base import BaseIndicator
-from pypostester.utils.validation import validate_and_convert_input, ValidationError
+from pypostester.utils.validation import (
+    validate_and_convert_input,
+    ValidationError,
+    validate_time_alignment,
+)
 
 
 class PositionBacktester:
     def __init__(
         self,
-        close: Union[pl.Series, pd.Series],
-        position: Union[pl.Series, pd.Series],
+        close_df: Union[pl.DataFrame, pd.DataFrame],
         commission: float = 0.0,
         annual_trading_days: int = 252,
         indicators: Union[str, List[str]] = "all",
     ) -> None:
         try:
             # 验证并转换输入数据
-            self.df, self.commission, self.annual_trading_days = (
-                validate_and_convert_input(
-                    close, position, commission, annual_trading_days
-                )
-            )
+            self.close_df = validate_and_convert_input(close_df, data_type="close")
+            self.commission = commission
+            self.annual_trading_days = annual_trading_days
         except ValidationError as e:
             raise ValueError(f"Invalid input: {str(e)}")
 
         self.indicators = indicators
 
     def _calculate_funding_curve(self) -> pl.DataFrame:
-        """
-        计算资金曲线
-
-        Returns:
-            pl.DataFrame: 包含时间戳和资金曲线的数据框
-        """
+        """计算资金曲线"""
         # 计算收益率
         returns = self.df["close"].pct_change().fill_null(0)
 
@@ -48,13 +44,13 @@ class PositionBacktester:
         # 计算净收益
         net_returns = position_returns - transaction_costs
 
-        # 计算资金曲线 (使用 Polars 的 cumulative_eval 方法)
+        # 计算资金曲线
         funding_curve = (1 + net_returns).cum_prod()
 
         # 创建结果DataFrame
         result = pl.DataFrame(
             {
-                "timestamp": self.df["timestamp"],
+                "time": self.df["time"],
                 "funding_curve": funding_curve,
                 "returns": net_returns,
             }
@@ -66,11 +62,25 @@ class PositionBacktester:
         """添加自定义指标"""
         registry.register(indicator)
 
-    def run(self) -> Dict:
+    def run(self, position_df: Union[pl.DataFrame, pd.DataFrame]) -> Dict:
         """执行回测并返回结果"""
+        try:
+            # 验证并转换position数据
+            position_df = validate_and_convert_input(position_df, data_type="position")
+
+            # 验证时间对齐
+            validate_time_alignment(self.close_df, position_df)
+
+            # 合并数据
+            self.df = self.close_df.join(
+                position_df.select(["time", "position"]), on="time", how="inner"
+            ).sort("time")
+
+        except ValidationError as e:
+            raise ValueError(f"Invalid position input: {str(e)}")
+
         # 计算资金曲线
         funding_curve = self._calculate_funding_curve()
-        curve_series = funding_curve.select("funding_curve").get_column("funding_curve")
 
         # 准备缓存
         cache = self._prepare_cache(funding_curve)
@@ -80,20 +90,37 @@ class PositionBacktester:
 
         # 按依赖关系排序并计算指标
         sorted_indicators = self._sort_indicators_by_dependency(indicators_to_calculate)
-        results = self._calculate_indicators(sorted_indicators, curve_series, cache)
+        results = self._calculate_indicators(sorted_indicators, cache)
 
         return {"funding_curve": funding_curve, **results}
 
     def _prepare_cache(self, funding_curve: pl.DataFrame) -> Dict:
-        """准备计算缓存"""
-        timestamps = funding_curve.get_column("timestamp")
-        total_days = max((timestamps[-1] - timestamps[0]).days, 1)
+        """准备计算缓存
+
+        Args:
+            funding_curve: 包含 time、funding_curve 和 returns 列的 DataFrame
+
+        Returns:
+            Dict: 包含计算所需缓存数据的字典
+        """
+        times = funding_curve.get_column("time")
+        total_days = (times[-1] - times[0]).total_seconds() / (24 * 3600)
+        total_days = max(total_days, 1)  # 确保至少为1天
+
+        # 计算数据频率（以秒为单位）
+        time_diffs = times.diff().drop_nulls()
+        freq_seconds = float(time_diffs.mean().total_seconds())
+
+        # 计算每天的周期数
+        periods_per_day = (24 * 3600) / freq_seconds  # 使用秒为单位计算
 
         return {
+            "curve_df": funding_curve,
             "annual_trading_days": self.annual_trading_days,
-            "funding_curve": funding_curve,
             "total_days": total_days,
             "returns": funding_curve.get_column("returns"),
+            "freq_seconds": freq_seconds,  # 使用秒作为基本单位
+            "periods_per_day": periods_per_day,  # 每天的周期数
         }
 
     def _get_indicators_to_calculate(self) -> List[str]:
@@ -135,11 +162,17 @@ class PositionBacktester:
 
         return sorted_indicators
 
-    def _calculate_indicators(
-        self, sorted_indicators: List[str], curve: pl.Series, cache: Dict
-    ) -> Dict:
-        """计算指标"""
+    def _calculate_indicators(self, sorted_indicators: List[str], cache: Dict) -> Dict:
+        """计算指标
+
+        Args:
+            sorted_indicators: 按依赖关系排序的指标列表
+            cache: 计算缓存
+
+        Returns:
+            Dict: 计算结果字典
+        """
         return {
-            name: registry.get_indicator(name).calculate(curve, cache)
+            name: registry.get_indicator(name).calculate(cache)
             for name in sorted_indicators
         }

@@ -1,5 +1,5 @@
 import yfinance as yf
-import pandas as pd
+import polars as pl
 from datetime import datetime, timedelta
 from pathlib import Path
 from pypostester.core import PositionBacktester
@@ -15,27 +15,29 @@ def get_btc_data(start_date: datetime, end_date: datetime) -> tuple:
         end_date: 结束日期
 
     Returns:
-        tuple: (收盘价序列, 仓位序列)
+        tuple: (收盘价DataFrame, 仓位DataFrame)
     """
     try:
         # 使用yfinance获取BTC数据
-        btc = yf.download("BTC-USD", start=start_date, end=end_date, progress=False)
+        btc = yf.download(
+            "BTC-USD", start=start_date, end=end_date, progress=False, interval="15m"
+        )
 
-        # 提取收盘价
-        close = pd.Series(data=btc["Close"].values, index=btc.index, name="close")
+        # 创建收盘价DataFrame
+        close_df = pl.DataFrame({"time": btc.index, "close": btc["Close"].values})
 
-        # 生成全1仓位
-        position = pd.Series(data=[1.0] * len(close), index=btc.index, name="position")
+        # 创建仓位DataFrame（示例使用全1仓位）
+        position_df = pl.DataFrame({"time": btc.index, "position": [1.0] * len(btc)})
 
-        return close, position
+        return close_df, position_df
 
     except Exception as e:
-        raise RuntimeError(f"Failed to download BTC data: {str(e)}")
+        raise RuntimeError(f"获取BTC数据失败: {str(e)}")
 
 
 def run_backtest(
-    close: pd.Series,
-    position: pd.Series,
+    close_df: pl.DataFrame,
+    position_df: pl.DataFrame,
     commission: float = 0.001,
     annual_trading_days: int = 365,
     output_dir: str = "output",
@@ -44,8 +46,8 @@ def run_backtest(
     运行回测并生成报告
 
     Args:
-        close: 收盘价序列
-        position: 仓位序列
+        close_df: 包含time和close列的DataFrame
+        position_df: 包含time和position列的DataFrame
         commission: 手续费率
         annual_trading_days: 年化交易日数
         output_dir: 输出目录
@@ -57,15 +59,14 @@ def run_backtest(
 
         # 创建回测器实例
         backtester = PositionBacktester(
-            close=close,
-            position=position,
+            close_df=close_df,
             commission=commission,
             annual_trading_days=annual_trading_days,
             indicators="all",
         )
 
         # 运行回测
-        results = backtester.run()
+        results = backtester.run(position_df)
 
         # 打印主要指标
         print("\n=== 回测结果 ===")
@@ -96,11 +97,12 @@ def main():
     start_date = end_date - timedelta(days=60)
 
     # 获取数据
-    close, position = get_btc_data(start_date, end_date)
+    close_df, position_df = get_btc_data(start_date, end_date)
 
+    # 运行回测
     run_backtest(
-        close=close,
-        position=position,
+        close_df=close_df,
+        position_df=position_df,
         commission=0.001,  # 0.1% 手续费
         annual_trading_days=365,  # 加密货币全年交易
         output_dir="examples/output",

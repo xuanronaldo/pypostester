@@ -1,59 +1,43 @@
-from typing import Dict, Type
+from typing import Dict, Type, List
 import inspect
-from pathlib import Path
-from importlib import import_module
 from pypostester.indicators.base import BaseIndicator
+from pypostester.indicators import indicators
 
 
 class IndicatorRegistry:
-    """指标注册管理器"""
+    """指标注册器"""
 
     def __init__(self):
-        self._indicators: Dict[str, BaseIndicator] = {}
+        self._indicators: Dict[str, Type[BaseIndicator]] = {}
+        self._register_builtin_indicators()
+
+    def _register_builtin_indicators(self) -> None:
+        """自动注册所有内置指标"""
+        # 获取 indicators 模块中的所有成员
+        for name, obj in inspect.getmembers(indicators):
+            # 检查是否是类且是 BaseIndicator 的子类
+            if (
+                inspect.isclass(obj)
+                and issubclass(obj, BaseIndicator)
+                and obj != BaseIndicator
+            ):
+                self.register(obj())
 
     def register(self, indicator: BaseIndicator) -> None:
         """注册新指标"""
-        self._indicators[indicator.name] = indicator
+        self._indicators[indicator.name] = indicator.__class__
 
     def get_indicator(self, name: str) -> BaseIndicator:
         """获取指标实例"""
         if name not in self._indicators:
-            raise KeyError(f"Indicator '{name}' not found")
-        return self._indicators[name]
-
-    def get_all_indicators(self) -> Dict[str, BaseIndicator]:
-        """获取所有注册的指标"""
-        return self._indicators.copy()
+            raise ValueError(f"Unknown indicator: {name}")
+        return self._indicators[name]()
 
     @property
-    def available_indicators(self) -> list:
-        """获取所有可用的指标名称"""
-        return list(self._indicators.keys())
+    def available_indicators(self) -> List[str]:
+        """获取所有可用指标名称"""
+        return sorted(self._indicators.keys())
 
 
-# 创建全局注册器实例
+# 全局指标注册器实例
 registry = IndicatorRegistry()
-
-
-def register_builtin_indicators():
-    """注册内置指标"""
-
-    def is_indicator_class(obj: Type) -> bool:
-        return (
-            inspect.isclass(obj)
-            and issubclass(obj, BaseIndicator)
-            and obj != BaseIndicator
-        )
-
-    # 手动导入模块
-    from pypostester.indicators import returns
-    from pypostester.indicators import risks
-
-    # 遍历模块中的所有类
-    for module in [returns, risks]:
-        for name, obj in inspect.getmembers(module, is_indicator_class):
-            registry.register(obj())
-
-
-# 注册内置指标
-register_builtin_indicators()

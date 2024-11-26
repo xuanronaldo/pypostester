@@ -46,9 +46,9 @@ class BacktestVisualizer:
     def _generate_data_info_html(self) -> str:
         """生成数据信息HTML"""
         df = self.funding_curve.to_pandas()
-        start_date = df["timestamp"].min().strftime("%Y-%m-%d")
-        end_date = df["timestamp"].max().strftime("%Y-%m-%d")
-        total_days = (df["timestamp"].max() - df["timestamp"].min()).days
+        start_date = df["time"].min().strftime("%Y-%m-%d")
+        end_date = df["time"].max().strftime("%Y-%m-%d")
+        total_days = (df["time"].max() - df["time"].min()).days
 
         info = {
             "回测起始日期": start_date,
@@ -105,7 +105,7 @@ class BacktestVisualizer:
         # 添加资金曲线
         fig.add_trace(
             go.Scatter(
-                x=df["timestamp"],
+                x=df["time"],
                 y=df["funding_curve"],
                 name="资金曲线",
                 line=dict(color="#1f77b4"),
@@ -130,7 +130,7 @@ class BacktestVisualizer:
             # 添加回撤区域（使用两条线形成充区域）
             fig.add_trace(
                 go.Scatter(
-                    x=dd_region["timestamp"],
+                    x=dd_region["time"],
                     y=dd_region["funding_curve"],
                     name=f'最大回撤区间 ({self.results["max_drawdown"]:.1%})',
                     line=dict(color="rgba(255,0,0,0.5)"),
@@ -141,7 +141,7 @@ class BacktestVisualizer:
             # 添加填充区域
             fig.add_trace(
                 go.Scatter(
-                    x=dd_region["timestamp"],
+                    x=dd_region["time"],
                     y=cummax[max_dd_start_idx : max_dd_end_idx + 1],
                     fill="tonexty",
                     mode="none",  # 不显示线条
@@ -154,7 +154,7 @@ class BacktestVisualizer:
             # 添加最大回撤起点和终点的标记
             fig.add_trace(
                 go.Scatter(
-                    x=[df["timestamp"][max_dd_start_idx]],
+                    x=[df["time"][max_dd_start_idx]],
                     y=[df["funding_curve"][max_dd_start_idx]],
                     mode="markers+text",
                     name="回撤起点",
@@ -166,7 +166,7 @@ class BacktestVisualizer:
 
             fig.add_trace(
                 go.Scatter(
-                    x=[df["timestamp"][max_dd_end_idx]],
+                    x=[df["time"][max_dd_end_idx]],
                     y=[df["funding_curve"][max_dd_end_idx]],
                     mode="markers+text",
                     name="回撤终点",
@@ -221,7 +221,7 @@ class BacktestVisualizer:
 
         fig.add_trace(
             go.Scatter(
-                x=df["timestamp"],
+                x=df["time"],
                 y=drawdown,
                 fill="tozeroy",
                 name="回撤",
@@ -243,9 +243,7 @@ class BacktestVisualizer:
         """创建月度收益图"""
         df = self.funding_curve.to_pandas()
         df["returns"] = df["funding_curve"].pct_change()
-        monthly_returns = df.groupby(df["timestamp"].dt.strftime("%Y-%m"))[
-            "returns"
-        ].sum()
+        monthly_returns = df.groupby(df["time"].dt.strftime("%Y-%m"))["returns"].sum()
 
         # 创建颜色列表
         colors = ["red" if x < 0 else "green" for x in monthly_returns.values]
@@ -275,17 +273,23 @@ class BacktestVisualizer:
 
         return fig
 
-    def generate_html_report(self, output_path: str = "backtest_report.html") -> None:
-        """生成HTML报告"""
+    def generate_html_report(self, output_path: str) -> None:
+        """生成HTML回测报告
+
+        Args:
+            output_path: 输出文件路径
+        """
+        df = self.results["funding_curve"]
+
+        # 获取数据集统计信息
+        start_date = df["time"].min().strftime("%Y-%m-%d")
+        end_date = df["time"].max().strftime("%Y-%m-%d")
+        total_days = (df["time"].max() - df["time"].min()).days
+        data_points = len(df)
+
         # 读取HTML模板
         with open(self.template_path, "r", encoding="utf-8") as f:
             html_template = f.read()
-
-        # 准备数据
-        df = self.funding_curve.to_pandas()
-        start_date = df["timestamp"].min().strftime("%Y-%m-%d")
-        end_date = df["timestamp"].max().strftime("%Y-%m-%d")
-        total_days = (df["timestamp"].max() - df["timestamp"].min()).days
 
         # 生成图表
         funding_curve_fig = self.create_funding_curve_figure()
@@ -305,7 +309,7 @@ class BacktestVisualizer:
             "start_date": start_date,
             "end_date": end_date,
             "total_days": f"{total_days} days",
-            "data_points": f"{len(df):,}",
+            "data_points": f"{data_points:,}",
             "metrics_html": self._generate_metrics_html(),
             "funding_curve_div": funding_curve_fig.to_html(
                 full_html=False, include_plotlyjs=False, config={"locale": "en"}
