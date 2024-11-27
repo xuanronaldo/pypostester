@@ -205,70 +205,38 @@ class WinRate(BaseIndicator):
         return win_rate
 
 
-class MonthlyReturns(BaseIndicator):
+class MonthlyReturn(BaseIndicator):
     """月度收益率指标"""
 
     @property
     def name(self) -> str:
-        return "monthly_returns"
+        return "monthly_return"
 
-    def calculate(self, cache: Dict) -> Dict[str, float]:
+    @property
+    def requires(self) -> set:
+        return set()
+
+    def calculate(self, cache: Dict) -> float:
         """计算月度收益率"""
-        if "monthly_returns" not in cache:
-            df = cache["curve_df"]
+        curve_df = cache["curve_df"]
 
-            # 确保数据按时间排序
-            df = df.sort("time")
-
-            # 添加月份列
-            df = df.with_columns([pl.col("time").dt.strftime("%Y-%m").alias("month")])
-
-            # 获取每月第一个和最后一个时间点的数据
-            monthly_data = (
-                df.group_by("month")
-                .agg(
-                    [
-                        pl.col("funding_curve").first().alias("first_value"),
-                        pl.col("funding_curve").last().alias("last_value"),
-                        pl.col("time").first().alias("start_time"),
-                        pl.col("time").last().alias("end_time"),
-                    ]
-                )
-                .sort("month")
-            )
-
-            # 计算月度收益率和实际天数
-            monthly_data = monthly_data.with_columns(
+        # 使用polars进行groupby操作
+        monthly_returns = (
+            pl.DataFrame({"time": curve_df["time"], "returns": cache["returns"]})
+            .with_columns(
                 [
-                    ((pl.col("last_value") / pl.col("first_value")) - 1).alias(
-                        "return"
-                    ),
-                    (
-                        (pl.col("end_time") - pl.col("start_time"))
-                        .cast(pl.Int64)  # 转换为整数（纳秒）
-                        .cast(pl.Float64)  # 转换为浮点数
-                        / (24 * 3600 * 1e9)
-                    ).alias(  # 转换为天数
-                        "days_in_month"
-                    ),
+                    pl.col("time").dt.year().alias("year"),
+                    pl.col("time").dt.month().alias("month"),
                 ]
             )
+            .group_by(["year", "month"])
+            .agg([((pl.col("returns") + 1).product() - 1).alias("monthly_return")])
+            .sort(["year", "month"])
+        )
 
-            # 转换为字典格式，包含年化的月度收益率
-            monthly_returns_dict = {}
-            for row in monthly_data.iter_rows(named=True):
-                month = row["month"]
-                monthly_return = row["return"]
-                days = row["days_in_month"]
+        # 如果没有数据，返回0
+        if len(monthly_returns) == 0:
+            return 0.0
 
-                # 计算年化月度收益率
-                if days > 0:
-                    annualized_monthly_return = (1 + monthly_return) ** (30 / days) - 1
-                else:
-                    annualized_monthly_return = monthly_return
-
-                monthly_returns_dict[month] = float(annualized_monthly_return)
-
-            cache["monthly_returns"] = monthly_returns_dict
-
-        return cache["monthly_returns"]
+        # 返回最近一个月的收益率
+        return float(monthly_returns["monthly_return"][-1])

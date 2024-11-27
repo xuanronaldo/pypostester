@@ -1,38 +1,45 @@
-import yfinance as yf
 import polars as pl
-from datetime import datetime, timedelta
+import pandas as pd
+from datetime import datetime
 from pathlib import Path
 from pypostester.core import PositionBacktester
 from pypostester.utils.visualization import BacktestVisualizer
 
 
-def get_btc_data(start_date: datetime, end_date: datetime) -> tuple:
+def load_btc_data(data_path: Path) -> tuple:
     """
-    获取BTC历史数据
+    从HDF文件加载BTC数据
 
     Args:
-        start_date: 开始日期
-        end_date: 结束日期
+        data_path: HDF文件路径
 
     Returns:
         tuple: (收盘价DataFrame, 仓位DataFrame)
     """
     try:
-        # 使用yfinance获取BTC数据
-        btc = yf.download(
-            "BTC-USD", start=start_date, end=end_date, progress=False, interval="15m"
-        )
+        # 读取HDF文件
+        df = pd.read_hdf(data_path)
 
         # 创建收盘价DataFrame
-        close_df = pl.DataFrame({"time": btc.index, "close": btc["Close"].values})
+        close_df = pl.DataFrame(
+            {
+                "time": df.index.to_numpy("datetime64[ms]"),
+                "close": df["close"].to_numpy("float64"),
+            }
+        )
 
         # 创建仓位DataFrame（示例使用全1仓位）
-        position_df = pl.DataFrame({"time": btc.index, "position": [1.0] * len(btc)})
+        position_df = pl.DataFrame(
+            {
+                "time": df.index.to_numpy("datetime64[ms]"),
+                "position": pl.Series([1.0] * len(df), dtype=pl.Float64),
+            }
+        )
 
         return close_df, position_df
 
     except Exception as e:
-        raise RuntimeError(f"获取BTC数据失败: {str(e)}")
+        raise RuntimeError(f"加载BTC数据失败: {str(e)}")
 
 
 def run_backtest(
@@ -92,12 +99,12 @@ def run_backtest(
 
 def main():
     """主函数"""
-    # 设置回测时间范围
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=60)
+    # 设置数据文件路径
+    project_root = Path(__file__).parent.parent
+    data_path = project_root / "data" / "BTCUSDT-SWAP_1h.hdf"
 
-    # 获取数据
-    close_df, position_df = get_btc_data(start_date, end_date)
+    # 加载数据
+    close_df, position_df = load_btc_data(data_path)
 
     # 运行回测
     run_backtest(

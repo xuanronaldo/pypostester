@@ -1,11 +1,11 @@
 import unittest
 import polars as pl
 import pandas as pd
-import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import warnings
+import numpy as np
 
 # 忽略特定的废弃警告
 warnings.filterwarnings(
@@ -16,8 +16,8 @@ warnings.filterwarnings(
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from core.backtester import PositionBacktester
-from utils.visualization import BacktestVisualizer
+from pypostester.core.backtester import PositionBacktester
+from pypostester.utils.visualization import BacktestVisualizer
 
 
 class TestBacktester(unittest.TestCase):
@@ -25,55 +25,54 @@ class TestBacktester(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        """测试类初始化，获取BTC数据"""
-        # 获取BTC数据
-        cls.get_btc_data()
+        """测试类初始化，加载BTC数据"""
+        # 加载BTC数据
+        cls.load_btc_data()
 
         # 设置输出路径
         cls.output_dir = Path(__file__).parent / "output"
         cls.output_dir.mkdir(exist_ok=True)
 
     @classmethod
-    def get_btc_data(cls):
-        """获取BTC历史数据"""
-        # 获取最近两年的BTC数据
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365 * 2)
-
+    def load_btc_data(cls):
+        """从HDF文件加载BTC数据"""
         try:
-            # 使用yfinance获取BTC数据
-            btc = yf.download("BTC-USD", start=start_date, end=end_date, progress=False)
+            # 读取HDF文件
+            data_path = project_root / "data" / "BTCUSDT-SWAP_1h.hdf"
+            df = pd.read_hdf(data_path)
 
-            # 转换为polars.DataFrame
-            cls.df = pl.from_pandas(btc)
-
-            # 提取收盘价和时间戳
-            cls.close = pd.Series(
-                data=btc["Close"].values, index=btc.index, name="close"
+            # 准备收盘价数据
+            cls.close_df = pl.DataFrame(
+                {
+                    "time": df.index.to_numpy("datetime64[ms]"),
+                    "close": df["close"].to_numpy("float64"),
+                }
             )
 
-            # 生成全1仓位
-            cls.position = pd.Series(
-                data=[1.0] * len(cls.close), index=btc.index, name="position"
+            # 准备买入持有的仓位数据
+            cls.position_df = pl.DataFrame(
+                {
+                    "time": df.index.to_numpy("datetime64[ms]"),
+                    "position": np.full(len(df), 1.0, dtype="float64"),  # 买入持有
+                }
             )
 
         except Exception as e:
-            raise RuntimeError(f"Failed to download BTC data: {str(e)}")
+            raise RuntimeError(f"Failed to load BTC data: {str(e)}")
 
     def test_basic_backtest(self):
         """测试基本回测功能"""
         try:
             # 创建回测器实例
             backtester = PositionBacktester(
-                close=self.close,
-                position=self.position,
-                commission=0.001,
-                annual_trading_days=365,
+                close_df=self.close_df,
+                commission=0.001,  # 0.1% 手续费
+                annual_trading_days=365,  # 加密货币全年交易
                 indicators="all",
             )
 
             # 运行回测
-            results = backtester.run()
+            results = backtester.run(self.position_df)
 
             # 基本断言
             self.assertIn("funding_curve", results)
@@ -104,21 +103,27 @@ class TestBacktester(unittest.TestCase):
 
     def test_invalid_inputs(self):
         """测试无效输入"""
-        # 测试负的手续费率
+        # 测试缺失必需列
+        invalid_df = pl.DataFrame({"time": self.close_df["time"]})  # 缺少 close 列
         with self.assertRaises(ValueError):
-            PositionBacktester(
-                close=self.close, position=self.position, commission=-0.001
-            )
+            PositionBacktester(close_df=invalid_df)
 
-        # 测试无效的年度交易日数
+        # 测试时间不对齐
+        misaligned_position = self.position_df.slice(
+            0, len(self.position_df) - 1
+        )  # 删除最后一行
+        backtester = PositionBacktester(close_df=self.close_df)
         with self.assertRaises(ValueError):
-            PositionBacktester(
-                close=self.close, position=self.position, annual_trading_days=0
-            )
+            backtester.run(misaligned_position)
 
-        # 测试长度不匹配的输入
+        # 测试无效的持仓值
+        invalid_position = self.position_df.with_columns(
+            pl.col("position").map_elements(
+                lambda x: 2.0, return_dtype=pl.Float64  # 明确指定返回类型
+            )
+        )
         with self.assertRaises(ValueError):
-            PositionBacktester(close=self.close, position=self.position[:-1])  # 长度少1
+            backtester.run(invalid_position)
 
 
 if __name__ == "__main__":

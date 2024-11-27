@@ -8,6 +8,9 @@ from pypostester.utils.validation import (
     validate_and_convert_input,
     ValidationError,
     validate_time_alignment,
+    validate_commission,
+    validate_annual_trading_days,
+    validate_indicators,
 )
 
 
@@ -20,14 +23,19 @@ class PositionBacktester:
         indicators: Union[str, List[str]] = "all",
     ) -> None:
         try:
+            # 验证参数
+            validate_commission(commission)
+            validate_annual_trading_days(annual_trading_days)
+            validate_indicators(indicators, registry.available_indicators)
+
             # 验证并转换输入数据
             self.close_df = validate_and_convert_input(close_df, data_type="close")
             self.commission = commission
             self.annual_trading_days = annual_trading_days
+            self.indicators = indicators
+
         except ValidationError as e:
             raise ValueError(f"Invalid input: {str(e)}")
-
-        self.indicators = indicators
 
     def _calculate_funding_curve(self) -> pl.DataFrame:
         """计算资金曲线"""
@@ -104,22 +112,25 @@ class PositionBacktester:
             Dict: 包含计算所需缓存数据的字典
         """
         times = funding_curve.get_column("time")
+
+        # 计算总天数
         total_days = (times[-1] - times[0]).total_seconds() / (24 * 3600)
         total_days = max(total_days, 1)  # 确保至少为1天
 
-        # 计算数据频率（以秒为单位）
+        # 计算数据频率（以天为单位）
         time_diffs = times.diff().drop_nulls()
-        freq_seconds = float(time_diffs.mean().total_seconds())
+        avg_interval = float(time_diffs.mean().total_seconds()) / (
+            24 * 3600
+        )  # 转换为天
 
         # 计算每天的周期数
-        periods_per_day = (24 * 3600) / freq_seconds  # 使用秒为单位计算
+        periods_per_day = 1 / avg_interval if avg_interval > 0 else 1
 
         return {
             "curve_df": funding_curve,
             "annual_trading_days": self.annual_trading_days,
             "total_days": total_days,
             "returns": funding_curve.get_column("returns"),
-            "freq_seconds": freq_seconds,  # 使用秒作为基本单位
             "periods_per_day": periods_per_day,  # 每天的周期数
         }
 
