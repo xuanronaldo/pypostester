@@ -9,16 +9,19 @@ from pypostester.utils.i18n import I18N
 class BacktestVisualizer:
     """回测结果可视化器"""
 
-    def __init__(self, results: Dict, backtester: PositionBacktester):
+    def __init__(self, results: Dict, params: Dict):
         """
         初始化可视化器
 
         Args:
             results: 回测结果字典
-            backtester: 回测器实例，用于获取回测参数
+            params: 回测参数字典，包含：
+                - commission: 手续费率
+                - annual_trading_days: 年化交易天数
+                - indicators: 计算的指标列表
         """
         self.results = results
-        self.backtester = backtester
+        self.params = params
         self.funding_curve = results["funding_curve"]
 
         # 获取模板文件路径
@@ -29,12 +32,12 @@ class BacktestVisualizer:
     def _generate_backtest_params_html(self) -> str:
         """生成回测参数HTML"""
         params = {
-            "commission_rate": f"{self.backtester.commission:.3%}",
-            "annual_trading_days": (f"{self.backtester.annual_trading_days} " "天"),
+            "commission_rate": f"{self.params['commission']:.3%}",
+            "annual_trading_days": f"{self.params['annual_trading_days']} 天",
             "indicators": (
                 "所有指标"
-                if self.backtester.indicators == "all"
-                else ", ".join(self.backtester.indicators)
+                if self.params["indicators"] == "all"
+                else ", ".join(self.params["indicators"])
             ),
         }
 
@@ -299,12 +302,12 @@ class BacktestVisualizer:
         # 准备替换变量
         template_vars = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "commission": f"{self.backtester.commission:.3%}",
-            "trading_days": f"{self.backtester.annual_trading_days} days",
+            "commission": f"{self.params['commission']:.3%}",
+            "trading_days": f"{self.params['annual_trading_days']} days",
             "indicators": (
                 "All"
-                if self.backtester.indicators == "all"
-                else ", ".join(self.backtester.indicators)
+                if self.params["indicators"] == "all"
+                else ", ".join(self.params["indicators"])
             ),
             "start_date": start_date,
             "end_date": end_date,

@@ -187,3 +187,20 @@ class PositionBacktester:
             name: registry.get_indicator(name).calculate(cache)
             for name in sorted_indicators
         }
+
+    def get_params(self) -> Dict:
+        """获取回测器参数
+
+        Returns:
+            Dict: 包含回测器参数的字典，包括：
+                - commission: 手续费率
+                - annual_trading_days: 年化交易天数
+                - indicators: 计算的指标列表
+        """
+        return {
+            "commission": self.commission,
+            "annual_trading_days": self.annual_trading_days,
+            "indicators": (
+                "all" if self.indicators == "all" else list(self.indicators)
+            ),
+        }

@@ -1,9 +1,10 @@
 import polars as pl
 import pandas as pd
+import time
 from datetime import datetime
 from pathlib import Path
-from pypostester.core import PositionBacktester
-from pypostester.utils.visualization import BacktestVisualizer
+from pypostester import PositionBacktester
+from pypostester import BacktestVisualizer
 
 
 def load_btc_data(data_path: Path) -> tuple:
@@ -60,6 +61,7 @@ def run_backtest(
         output_dir: 输出目录
     """
     try:
+        start_time = time.time()
         # 创建输出目录
         output_path = Path(output_dir)
         output_path.mkdir(exist_ok=True)
@@ -85,12 +87,16 @@ def run_backtest(
         print(f"胜率: {results['win_rate']:.2%}")
 
         # 生成可视化报告
-        visualizer = BacktestVisualizer(results, backtester)
+        visualizer = BacktestVisualizer(results, backtester.get_params())
         report_name = f"btc_backtest_report.html"
         report_path = output_path / report_name
         visualizer.generate_html_report(str(report_path))
 
         print(f"\n报告已生成: {report_path}")
+
+        end_time = time.time()  # 记录结束时间
+        elapsed_time = end_time - start_time  # 计算运行时间
+        print(f"运行时间: {elapsed_time:.2f}秒")  # 打印运行时间
 
     except Exception as e:
         print(f"回测过程出错: {str(e)}")
@@ -101,7 +107,7 @@ def main():
     """主函数"""
     # 设置数据文件路径
     project_root = Path(__file__).parent.parent
-    data_path = project_root / "data" / "BTCUSDT-SWAP_1h.hdf"
+    data_path = project_root / "data" / "BTCUSDT-SWAP_15m.hdf"
 
     # 加载数据
     close_df, position_df = load_btc_data(data_path)
