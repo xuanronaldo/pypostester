@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Set
+from typing import Dict, Set, Union
+import polars as pl
 
 
 class BaseIndicator(ABC):
@@ -17,6 +18,6 @@ class BaseIndicator(ABC):
         return set()
 
     @abstractmethod
-    def calculate(self, cache: Dict) -> float:
+    def calculate(self, cache: Dict) -> Union[float, str, pl.DataFrame]:
         """计算指标值"""
         pass

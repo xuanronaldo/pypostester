@@ -4,6 +4,7 @@ from typing import Union, Literal, List
 import polars as pl
 import pandas as pd
 from pypostester.core.constants import REQUIRED_COLUMNS
+from pypostester.indicators.registry import registry
 
 
 class ValidationError(Exception):
@@ -44,14 +45,15 @@ def validate_annual_trading_days(days: int) -> None:
         raise ValidationError("Annual trading days cannot exceed 365")
 
 
-def validate_indicators(
-    indicators: Union[str, List[str]], available_indicators: List[str]
-) -> None:
-    """验证指标参数
+def validate_indicators(indicators: Union[str, List[str]]) -> List[str]:
+    """验证指标参数并返回排序后的指标列表
 
     Args:
         indicators: 指标名称或列表
         available_indicators: 可用指标列表
+
+    Returns:
+        List[str]: 排序后的指标列表
 
     Raises:
         ValidationError: 当指标参数无效时
@@ -59,15 +61,21 @@ def validate_indicators(
     if indicators != "all" and not isinstance(indicators, (list, tuple)):
         raise ValidationError("Indicators must be 'all' or a list of indicator names")
 
-    if isinstance(indicators, (list, tuple)):
-        invalid_indicators = [
-            name for name in indicators if name not in available_indicators
-        ]
-        if invalid_indicators:
-            raise ValidationError(
-                f"Invalid indicator names: {invalid_indicators}. "
-                f"Available indicators: {available_indicators}"
-            )
+    sorted_indicators = registry.sorted_indicators
+
+    if indicators == "all":
+        return sorted_indicators
+
+    # 验证所有指标是否有效
+    invalid_indicators = set(indicators) - set(registry.available_indicators)
+    if invalid_indicators:
+        raise ValidationError(
+            f"Invalid indicator names: {list(invalid_indicators)}. "
+            f"Available indicators: {registry.available_indicators}"
+        )
+
+    # 按照registry中的排序返回指定的指标
+    return [name for name in sorted_indicators if name in indicators]
 
 
 def validate_and_convert_input(
@@ -133,3 +141,21 @@ def validate_time_alignment(close_df: pl.DataFrame, position_df: pl.DataFrame) -
 
     if close_times != position_times:
         raise ValidationError("Close and position data must have identical timestamps")
+
+
+def validate_data_type(data) -> Union[float, str, pl.DataFrame]:
+    """验证数据类型是否为 float, str 或 polars.DataFrame
+
+    Args:
+        data: 要验证的数据
+
+    Returns:
+        Union[float, str, pl.DataFrame]: 验证通过的数据
+
+    Raises:
+        ValidationError: 当数据类型无效时
+    """
+    if isinstance(data, (float, str, pl.DataFrame)):
+        return data
+    else:
+        raise ValidationError("Data must be of type float, str, or polars.DataFrame")

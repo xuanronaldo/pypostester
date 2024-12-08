@@ -4,6 +4,21 @@ import numpy as np
 from pypostester.indicators.base import BaseIndicator
 
 
+class TotalReturn(BaseIndicator):
+    """总收益率指标"""
+
+    @property
+    def name(self) -> str:
+        return "total_return"
+
+    def calculate(self, cache: Dict) -> float:
+        """计算总收益率"""
+        if "total_return" not in cache:
+            curve = cache["curve_df"].get_column("funding_curve")
+            cache["total_return"] = float(curve.tail(1)[0] / curve[0] - 1)
+        return cache["total_return"]
+
+
 class AnnualReturn(BaseIndicator):
     """年化收益率指标"""
 
@@ -11,18 +26,24 @@ class AnnualReturn(BaseIndicator):
     def name(self) -> str:
         return "annual_return"
 
+    @property
+    def requires(self) -> Set[str]:
+        return {"total_return"}
+
     def calculate(self, cache: Dict) -> float:
         """计算年化收益率"""
         if "annual_return" not in cache:
-            curve = cache["curve_df"].get_column("funding_curve")
-            total_return = float(curve.tail(1)[0] / curve[0])
+            # 使用total_return计算年化收益率
+            total_return = cache["total_return"]
 
             # 使用实际的交易天数进行年化
             periods_per_day = cache["periods_per_day"]
-            total_periods = len(curve)
+            total_periods = len(cache["curve_df"].get_column("funding_curve"))
             actual_days = total_periods / periods_per_day
 
-            cache["annual_return"] = float((total_return ** (365 / actual_days)) - 1)
+            cache["annual_return"] = float(
+                ((1 + total_return) ** (365 / actual_days)) - 1
+            )
         return cache["annual_return"]
 
 
@@ -77,11 +98,32 @@ class MaxDrawdown(BaseIndicator):
         return "max_drawdown"
 
     def calculate(self, cache: Dict) -> float:
-        """计算最大回撤"""
-        curve = cache["curve_df"].get_column("funding_curve")
-        max_dd = (curve.cum_max() - curve).max() / curve.max()
-        cache["max_drawdown"] = max_dd
-        return max_dd
+        """计算最大回撤
+
+        计算方法：
+        1. 计算每个时点的历史新高
+        2. 计算每个时点相对于历史新高的回撤
+        3. 取最大回撤值
+        """
+        if "max_drawdown" not in cache:
+            df = cache["curve_df"]
+
+            # 计算历史新高
+            df = df.with_columns(pl.col("funding_curve").cum_max().alias("peak"))
+
+            # 计算回撤
+            df = df.with_columns(
+                ((pl.col("peak") - pl.col("funding_curve")) / pl.col("peak")).alias(
+                    "drawdown"
+                )
+            )
+
+            # 获取最大回撤
+            max_dd = float(df.get_column("drawdown").max())
+
+            cache["max_drawdown"] = max_dd
+
+        return cache["max_drawdown"]
 
 
 class MaxDrawdownDuration(BaseIndicator):
@@ -128,64 +170,6 @@ class MaxDrawdownDuration(BaseIndicator):
         return duration_days
 
 
-class CalmarRatio(BaseIndicator):
-    """卡玛比率指标"""
-
-    @property
-    def name(self) -> str:
-        return "calmar_ratio"
-
-    @property
-    def requires(self) -> Set[str]:
-        return {"annual_return", "max_drawdown"}
-
-    def calculate(self, cache: Dict) -> float:
-        """计算卡玛比率"""
-        if "calmar_ratio" not in cache:
-            max_dd = cache["max_drawdown"]
-            cache["calmar_ratio"] = float(
-                cache["annual_return"] / max_dd if max_dd != 0 else 0
-            )
-        return cache["calmar_ratio"]
-
-
-class SortinoRatio(BaseIndicator):
-    """索提诺比率指标"""
-
-    @property
-    def name(self) -> str:
-        return "sortino_ratio"
-
-    @property
-    def requires(self) -> Set[str]:
-        return {"annual_return"}
-
-    def calculate(self, cache: Dict) -> float:
-        """计算索提诺比率"""
-        if "sortino_ratio" not in cache:
-            returns = cache["returns"]
-            periods_per_day = cache["periods_per_day"]
-
-            # 只考虑负收益的波动率
-            negative_returns = returns.filter(returns < 0)
-            if len(negative_returns) == 0:
-                downside_vol = 0
-            else:
-                # 计算下行波动率
-                period_vol = float(negative_returns.std())
-                # 转换为日化波动率
-                daily_factor = np.sqrt(periods_per_day)
-                daily_vol = period_vol * daily_factor
-                # 转换为年化波动率
-                annualization_factor = np.sqrt(cache["annual_trading_days"])
-                downside_vol = daily_vol * annualization_factor
-
-            cache["sortino_ratio"] = float(
-                cache["annual_return"] / downside_vol if downside_vol != 0 else 0
-            )
-        return cache["sortino_ratio"]
-
-
 class WinRate(BaseIndicator):
     """胜率指标"""
 
@@ -205,38 +189,73 @@ class WinRate(BaseIndicator):
         return win_rate
 
 
-class MonthlyReturn(BaseIndicator):
-    """月度收益率指标"""
+class AvgDrawdown(BaseIndicator):
+    """平均回撤指标"""
 
     @property
     def name(self) -> str:
-        return "monthly_return"
-
-    @property
-    def requires(self) -> set:
-        return set()
+        return "avg_drawdown"
 
     def calculate(self, cache: Dict) -> float:
-        """计算月度收益率"""
-        curve_df = cache["curve_df"]
+        """计算平均回撤
 
-        # 使用polars进行groupby操作
-        monthly_returns = (
-            pl.DataFrame({"time": curve_df["time"], "returns": cache["returns"]})
-            .with_columns(
-                [
-                    pl.col("time").dt.year().alias("year"),
-                    pl.col("time").dt.month().alias("month"),
-                ]
+        计算方法：
+        1. 计算每个时点的回撤
+        2. 只考虑回撤不为0的时点
+        3. 计算这些回撤的平均值
+        """
+        if "avg_drawdown" not in cache:
+            curve = cache["curve_df"].get_column("funding_curve")
+
+            # 计算历史新高
+            peak = curve.cum_max()
+
+            # 计算回撤
+            drawdown = (peak - curve) / peak
+
+            # 只考虑回撤不为0的时点
+            non_zero_drawdown = drawdown.filter(drawdown > 0)
+
+            # 计算平均回撤
+            avg_dd = float(
+                non_zero_drawdown.mean() if len(non_zero_drawdown) > 0 else 0
             )
-            .group_by(["year", "month"])
-            .agg([((pl.col("returns") + 1).product() - 1).alias("monthly_return")])
-            .sort(["year", "month"])
-        )
 
-        # 如果没有数据，返回0
-        if len(monthly_returns) == 0:
-            return 0.0
+            cache["avg_drawdown"] = avg_dd
 
-        # 返回最近一个月的收益率
-        return float(monthly_returns["monthly_return"][-1])
+        return cache["avg_drawdown"]
+
+
+class ProfitLossRatio(BaseIndicator):
+    """盈亏比指标
+
+    计算方法：平均盈利 / 平均亏损的绝对值
+    盈亏比 = |获胜交易的平均收益率| / |亏损交易的平均收益率|
+    """
+
+    @property
+    def name(self) -> str:
+        return "profit_loss_ratio"
+
+    def calculate(self, cache: Dict) -> float:
+        """计算盈亏比"""
+        if "profit_loss_ratio" not in cache:
+            returns = cache["returns"]
+
+            # 分离盈利和亏损交易
+            profit_trades = returns.filter(returns > 0)
+            loss_trades = returns.filter(returns < 0)
+
+            # 计算平均盈利和平均亏损
+            avg_profit = profit_trades.mean() if len(profit_trades) > 0 else 0
+            avg_loss = abs(loss_trades.mean()) if len(loss_trades) > 0 else float("inf")
+
+            # 计算盈亏比
+            if avg_loss == 0:  # 避免除以0
+                ratio = float("inf") if avg_profit > 0 else 0
+            else:
+                ratio = avg_profit / avg_loss
+
+            cache["profit_loss_ratio"] = float(ratio)
+
+        return cache["profit_loss_ratio"]

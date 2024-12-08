@@ -1,7 +1,6 @@
 import polars as pl
 import pandas as pd
 import time
-from datetime import datetime
 from pathlib import Path
 from pypostester import PositionBacktester
 from pypostester import BacktestVisualizer
