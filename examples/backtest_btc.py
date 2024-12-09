@@ -75,15 +75,7 @@ def run_backtest(
 
         # 运行回测
         results = backtester.run(position_df)
-
-        # 打印主要指标
-        print("\n=== 回测结果 ===")
-        print(f"年化收益率: {results['annual_return']:.2%}")
-        print(f"夏普比率: {results['sharpe_ratio']:.2f}")
-        print(f"最大回撤: {results['max_drawdown']:.2%}")
-        print(f"最大回撤持续期: {results['max_drawdown_duration']:.0f}天")
-        print(f"年化波动率: {results['volatility']:.2%}")
-        print(f"胜率: {results['win_rate']:.2%}")
+        results.print()
 
         # 生成可视化报告
         visualizer = BacktestVisualizer(results, backtester.get_params())

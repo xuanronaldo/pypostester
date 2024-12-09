@@ -143,19 +143,19 @@ def validate_time_alignment(close_df: pl.DataFrame, position_df: pl.DataFrame) -
         raise ValidationError("Close and position data must have identical timestamps")
 
 
-def validate_data_type(data) -> Union[float, str, pl.DataFrame]:
-    """验证数据类型是否为 float, str 或 polars.DataFrame
+def validate_data_type(data) -> Union[float, pl.DataFrame]:
+    """验证数据类型是否为 float 或 polars.DataFrame
 
     Args:
         data: 要验证的数据
 
     Returns:
-        Union[float, str, pl.DataFrame]: 验证通过的数据
+        Union[float, pl.DataFrame]: 验证通过的数据
 
     Raises:
         ValidationError: 当数据类型无效时
     """
-    if isinstance(data, (float, str, pl.DataFrame)):
+    if isinstance(data, (float, pl.DataFrame)):
         return data
     else:
-        raise ValidationError("Data must be of type float, str, or polars.DataFrame")
+        raise ValidationError("Data must be of type float or polars.DataFrame")

@@ -26,23 +26,6 @@
             margin-bottom: 30px;
         }
         
-        .lang-switch {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            cursor: pointer;
-            background: #1f77b4;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            border: none;
-            font-size: 14px;
-        }
-        
-        .lang-switch:hover {
-            background: #1c6ba0;
-        }
-        
         .info-section {
             background-color: #f8f9fa;
             padding: 20px;
@@ -109,10 +92,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         
-        [lang="zh"] {
-            display: none;
-        }
-        
         @media (max-width: 768px) {
             .info-grid {
                 grid-template-columns: 1fr;
@@ -122,54 +101,24 @@
 </head>
 <body>
     <div class="container">
-        <button class="lang-switch" onclick="toggleLanguage()">中文</button>
-        
         <div class="header">
-            <h1 lang="en">Backtest Report</h1>
-            <h1 lang="zh">回测报告</h1>
-            <p lang="en">Generation Time: $timestamp</p>
-            <p lang="zh">生成时间: $timestamp</p>
+            <h1>Backtest Report</h1>
+            <p>Generation Time: $timestamp</p>
         </div>
         
         <div class="info-section">
             <div class="info-grid">
                 <div class="info-card">
                     <div class="info-content">
-                        <!-- 英文版参数 -->
-                        <div lang="en">
-                            <div class="info-title">Backtest Parameters</div>
-                            <div class="info-item">Commission Rate: $commission</div>
-                            <div class="info-item">Annual Trading Days: $trading_days</div>
-                            <div class="info-item">Indicators: $indicators</div>
-                        </div>
-                        <!-- 中文版参数 -->
-                        <div lang="zh">
-                            <div class="info-title">回测参数</div>
-                            <div class="info-item">手续费率: $commission</div>
-                            <div class="info-item">年化交易日: $trading_days</div>
-                            <div class="info-item">计算指标: $indicators</div>
-                        </div>
+                        <div class="info-title">Backtest Parameters</div>
+                        $backtest_params_html
                     </div>
                 </div>
                 
                 <div class="info-card">
                     <div class="info-content">
-                        <!-- 英文版数据信息 -->
-                        <div lang="en">
-                            <div class="info-title">Data Information</div>
-                            <div class="info-item">Start Date: $start_date</div>
-                            <div class="info-item">End Date: $end_date</div>
-                            <div class="info-item">Total Days: $total_days</div>
-                            <div class="info-item">Data Points: $data_points</div>
-                        </div>
-                        <!-- 中文版数据信息 -->
-                        <div lang="zh">
-                            <div class="info-title">数据信息</div>
-                            <div class="info-item">起始日期: $start_date</div>
-                            <div class="info-item">结束日期: $end_date</div>
-                            <div class="info-item">回测天数: $total_days</div>
-                            <div class="info-item">数据点数: $data_points</div>
-                        </div>
+                        <div class="info-title">Data Information</div>
+                        $data_info_html
                     </div>
                 </div>
             </div>
@@ -180,34 +129,19 @@
         </div>
         
         <div class="chart">
+            <h3>NAV Curve</h3>
             $funding_curve_div
         </div>
         
         <div class="chart">
+            <h3>Drawdown Analysis</h3>
             $drawdown_div
         </div>
         
         <div class="chart">
+            <h3>Monthly Returns</h3>
             $monthly_returns_div
         </div>
     </div>
-    
-    <script>
-        function toggleLanguage() {
-            const btn = document.querySelector('.lang-switch');
-            const zhElements = document.querySelectorAll('[lang="zh"]');
-            const enElements = document.querySelectorAll('[lang="en"]');
-            
-            if (btn.textContent === '中文') {
-                zhElements.forEach(el => el.style.display = 'block');
-                enElements.forEach(el => el.style.display = 'none');
-                btn.textContent = 'English';
-            } else {
-                zhElements.forEach(el => el.style.display = 'none');
-                enElements.forEach(el => el.style.display = 'block');
-                btn.textContent = '中文';
-            }
-        }
-    </script>
 </body>
 </html> 

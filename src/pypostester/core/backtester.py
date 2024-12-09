@@ -12,6 +12,7 @@ from pypostester.utils.validation import (
     validate_indicators,
     validate_data_type,
 )
+from pypostester.models.models import BacktestResult
 
 
 class PositionBacktester:
@@ -32,6 +33,7 @@ class PositionBacktester:
             self.close_df = validate_and_convert_input(close_df, data_type="close")
             self.commission = commission
             self.annual_trading_days = annual_trading_days
+            self.indicators = indicators
 
         except ValidationError as e:
             raise ValueError(f"Invalid input: {str(e)}")
@@ -69,8 +71,15 @@ class PositionBacktester:
         """添加自定义指标"""
         registry.register(indicator)
 
-    def run(self, position_df: Union[pl.DataFrame, pd.DataFrame]) -> Dict:
-        """执行回测并返回结果"""
+    def run(self, position_df: Union[pl.DataFrame, pd.DataFrame]) -> BacktestResult:
+        """执行回测并返回结果
+
+        Args:
+            position_df: 包含仓位数据的DataFrame
+
+        Returns:
+            BacktestResult: 回测结果对象
+        """
         try:
             # 验证并转换position数据
             position_df = validate_and_convert_input(position_df, data_type="position")
@@ -95,7 +104,19 @@ class PositionBacktester:
         # 计算指标
         results = self._calculate_indicators(cache)
 
-        return {"funding_curve": funding_curve, **results}
+        # 将results分成两个字典
+        dataframes = {k: v[k] for k, v in results["dataframes"].items()}
+        indicators = {k: v["value"] for k, v in results["indicators"].items()}
+        formatted_indicators = {
+            k: v["formatted_value"] for k, v in results["indicators"].items()
+        }
+
+        # 创建并返回BacktestResult对象
+        return BacktestResult(
+            dataframes={"funding_curve": funding_curve, **dataframes},
+            indicator_values=indicators,
+            formatted_indicator_values=formatted_indicators,
+        )
 
     def _prepare_cache(self, funding_curve: pl.DataFrame) -> Dict:
         """准备计算缓存
@@ -133,16 +154,28 @@ class PositionBacktester:
         """计算指标
 
         Args:
-            sorted_indicators: 按依赖关系排序的指标列表
+            sorted_indicators: 按依赖关系排的指标列表
             cache: 计算缓存
 
         Returns:
             Dict: 计算结果字典
         """
-        return {
-            name: validate_data_type(registry.get_indicator(name).calculate(cache))
-            for name in self.sorted_indicators
-        }
+        result = dict()
+        result["dataframes"] = dict()
+        result["indicators"] = dict()
+        for indicator in self.sorted_indicators:
+            value = validate_data_type(
+                registry.get_indicator(indicator).calculate(cache)
+            )
+            if isinstance(value, pl.DataFrame):
+                result["dataframes"][indicator] = value
+            else:
+                formatted_value = registry.get_indicator(indicator).format(value)
+                result["indicators"][indicator] = {
+                    "value": value,
+                    "formatted_value": formatted_value,
+                }
+        return result
 
     def get_params(self) -> Dict:
         """获取回测器参数
@@ -157,8 +190,6 @@ class PositionBacktester:
             "commission": self.commission,
             "annual_trading_days": self.annual_trading_days,
             "indicators": (
-                "all"
-                if self.sorted_indicators == "all"
-                else list(self.sorted_indicators)
+                "all" if self.indicators == "all" else list(self.sorted_indicators)
             ),
         }

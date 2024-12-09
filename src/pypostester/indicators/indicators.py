@@ -18,6 +18,9 @@ class TotalReturn(BaseIndicator):
             cache["total_return"] = float(curve.tail(1)[0] / curve[0] - 1)
         return cache["total_return"]
 
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
+
 
 class AnnualReturn(BaseIndicator):
     """年化收益率指标"""
@@ -46,6 +49,9 @@ class AnnualReturn(BaseIndicator):
             )
         return cache["annual_return"]
 
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
+
 
 class Volatility(BaseIndicator):
     """波动率指标"""
@@ -63,6 +69,9 @@ class Volatility(BaseIndicator):
         volatility = returns.std() * np.sqrt(annual_periods)
         cache["volatility"] = volatility
         return volatility
+
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
 
 
 class SharpeRatio(BaseIndicator):
@@ -88,6 +97,9 @@ class SharpeRatio(BaseIndicator):
                 cache["annual_return"] / annual_vol if annual_vol != 0 else 0
             )
         return cache["sharpe_ratio"]
+
+    def format(self, value: float) -> str:
+        return f"{value:.2f}"
 
 
 class MaxDrawdown(BaseIndicator):
@@ -124,6 +136,9 @@ class MaxDrawdown(BaseIndicator):
             cache["max_drawdown"] = max_dd
 
         return cache["max_drawdown"]
+
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
 
 
 class MaxDrawdownDuration(BaseIndicator):
@@ -169,6 +184,9 @@ class MaxDrawdownDuration(BaseIndicator):
         cache["max_drawdown_duration"] = duration_days
         return duration_days
 
+    def format(self, value: float) -> str:
+        return f"{value:.0f} days"
+
 
 class WinRate(BaseIndicator):
     """胜率指标"""
@@ -187,6 +205,9 @@ class WinRate(BaseIndicator):
         win_rate = winning_trades / total_trades
         cache["win_rate"] = win_rate
         return win_rate
+
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
 
 
 class AvgDrawdown(BaseIndicator):
@@ -225,6 +246,9 @@ class AvgDrawdown(BaseIndicator):
 
         return cache["avg_drawdown"]
 
+    def format(self, value: float) -> str:
+        return f"{value:.2%}"
+
 
 class ProfitLossRatio(BaseIndicator):
     """盈亏比指标
@@ -259,3 +283,8 @@ class ProfitLossRatio(BaseIndicator):
             cache["profit_loss_ratio"] = float(ratio)
 
         return cache["profit_loss_ratio"]
+
+    def format(self, value: float) -> str:
+        if value == float("inf"):
+            return "∞"
+        return f"{value:.2f}"

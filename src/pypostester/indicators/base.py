@@ -18,6 +18,18 @@ class BaseIndicator(ABC):
         return set()
 
     @abstractmethod
-    def calculate(self, cache: Dict) -> Union[float, str, pl.DataFrame]:
+    def calculate(self, cache: Dict) -> Union[float, pl.DataFrame]:
         """计算指标值"""
+        pass
+
+    @abstractmethod
+    def format(self, value: float) -> str:
+        """格式化指标值
+
+        Args:
+            value: 需要格式化的指标值
+
+        Returns:
+            格式化后的字符串
+        """
         pass

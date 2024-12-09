@@ -1,41 +1,264 @@
-from typing import Dict
+from typing import Dict, Optional, Callable, List
 import plotly.graph_objects as go
 from datetime import datetime
 from pathlib import Path
-from pypostester.core.backtester import PositionBacktester
-from pypostester.utils.i18n import I18N
+import polars as pl
+from pypostester.models import BacktestResult
 
 
 class BacktestVisualizer:
     """回测结果可视化器"""
 
-    def __init__(self, results: Dict, params: Dict):
-        """
-        初始化可视化器
+    def __init__(
+        self,
+        results: BacktestResult,
+        params: Dict,
+        template_path: Optional[Path] = None,
+    ):
+        """初始化可视化器
 
         Args:
-            results: 回测结果字典
-            params: 回测参数字典，包含：
-                - commission: 手续费率
-                - annual_trading_days: 年化交易天数
-                - indicators: 计算的指标列表
+            results: BacktestResult对象，包含回测结果
+            params: 回测参数字典
+            template_path: HTML模板路径，默认使用内置模板
         """
         self.results = results
         self.params = params
-        self.funding_curve = results["funding_curve"]
+        self.funding_curve = results.funding_curve
 
         # 获取模板文件路径
-        self.template_path = (
+        self._template_path = template_path or (
             Path(__file__).parent.parent / "templates" / "report_template.html"
         )
+
+        # 初始化图形创建器字典
+        self._figure_creators: Dict[str, Callable[[], go.Figure]] = {
+            "funding_curve": self._create_funding_curve_figure,
+            "drawdown": self._create_drawdown_figure,
+            "monthly_returns": self._create_monthly_returns_figure,
+        }
+
+        # 初始化自定义图形列表
+        self._custom_figures: List[Dict] = []
+
+    def add_figure(
+        self,
+        name: str,
+        figure_creator: Callable[[], go.Figure],
+        position: str = "bottom",
+    ) -> None:
+        """添加自定义图形
+
+        Args:
+            name: 图形名称，用于在HTML中标识
+            figure_creator: 创建图形的函数，需要返回plotly Figure对象
+            position: 图形位置，可选 "top" 或 "bottom"，默认为 "bottom"
+        """
+        if position not in ["top", "bottom"]:
+            raise ValueError("Position must be either 'top' or 'bottom'")
+
+        self._custom_figures.append(
+            {"name": name, "creator": figure_creator, "position": position}
+        )
+
+    def _create_base_figure(self, title: str) -> go.Figure:
+        """创建基础图形对象
+
+        Args:
+            title: 图形标题
+
+        Returns:
+            go.Figure: 基础图形对象
+        """
+        fig = go.Figure()
+        fig.update_layout(
+            title=title,
+            showlegend=True,
+            hovermode="x unified",
+            plot_bgcolor="white",
+            hoverlabel=dict(
+                bgcolor="white", font_size=12, font_family="Microsoft YaHei"
+            ),
+            xaxis=dict(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor="rgba(128,128,128,0.2)",
+                rangeslider=dict(visible=False),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridwidth=1,
+                gridcolor="rgba(128,128,128,0.2)",
+            ),
+        )
+        return fig
+
+    def _add_max_drawdown_visualization(
+        self, fig: go.Figure, df: pl.DataFrame, cummax: pl.Series, drawdown: pl.Series
+    ) -> None:
+        """添加最大回撤可视化
+
+        Args:
+            fig: 图形对象
+            df: 数据框
+            cummax: 累计最大值序列
+            drawdown: 回撤序列
+        """
+        # 找到最大回撤的起止点
+        max_dd_end_idx = drawdown.arg_min()
+        max_dd_start_idx = (
+            df.slice(0, max_dd_end_idx + 1).get_column("funding_curve").arg_max()
+        )
+
+        # 获取回撤区间数据
+        dd_region = df.slice(max_dd_start_idx, max_dd_end_idx - max_dd_start_idx + 1)
+
+        # 添加回撤区域
+        fig.add_trace(
+            go.Scatter(
+                x=dd_region.get_column("time"),
+                y=dd_region.get_column("funding_curve"),
+                name=f'Max Drawdown Period ({self.results.indicator_values["max_drawdown"]:.1%})',
+                line=dict(color="rgba(255,0,0,0.5)"),
+                showlegend=True,
+            )
+        )
+
+        # 添加填充区域
+        fig.add_trace(
+            go.Scatter(
+                x=dd_region.get_column("time"),
+                y=cummax.slice(max_dd_start_idx, max_dd_end_idx - max_dd_start_idx + 1),
+                fill="tonexty",
+                mode="none",
+                fillcolor="rgba(255,0,0,0.2)",
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+
+        # 添加最大回撤起点和终点的标记
+        for idx, name, color, symbol, position in [
+            (max_dd_start_idx, "Peak", "green", "triangle-up", "top"),
+            (max_dd_end_idx, "Trough", "red", "triangle-down", "bottom"),
+        ]:
+            point_value = df.row(idx)[1]  # funding_curve value
+            fig.add_trace(
+                go.Scatter(
+                    x=[df.row(idx)[0]],  # time value
+                    y=[point_value],
+                    mode="markers+text",
+                    name=name,
+                    marker=dict(color=color, size=10, symbol=symbol),
+                    text=[f"{name}: {point_value:.2f}"],
+                    textposition=f"{position} center",
+                )
+            )
+
+    def _create_funding_curve_figure(self) -> go.Figure:
+        """创建资金曲线图"""
+        fig = self._create_base_figure("Strategy NAV")
+
+        # 添加资金曲线
+        fig.add_trace(
+            go.Scatter(
+                x=self.funding_curve.get_column("time"),
+                y=self.funding_curve.get_column("funding_curve"),
+                name="NAV",
+                line=dict(color="#1f77b4"),
+            )
+        )
+
+        # 添加最大回撤阴影
+        if "max_drawdown" in self.results.indicator_values:
+            cummax = self.funding_curve.get_column("funding_curve").cum_max()
+            drawdown = (
+                self.funding_curve.get_column("funding_curve") - cummax
+            ) / cummax
+            self._add_max_drawdown_visualization(
+                fig, self.funding_curve, cummax, drawdown
+            )
+
+        # 更新y轴格式
+        fig.update_layout(
+            yaxis=dict(
+                tickformat=".3f",
+            ),
+        )
+
+        return fig
+
+    def _create_drawdown_figure(self) -> go.Figure:
+        """创建回撤图"""
+        fig = self._create_base_figure("Strategy Drawdown")
+
+        cummax = self.funding_curve.get_column("funding_curve").cum_max()
+        drawdown = (self.funding_curve.get_column("funding_curve") - cummax) / cummax
+
+        fig.add_trace(
+            go.Scatter(
+                x=self.funding_curve.get_column("time"),
+                y=drawdown,
+                fill="tozeroy",
+                name="回撤",
+                line=dict(color="red"),
+            )
+        )
+
+        fig.update_layout(
+            yaxis=dict(
+                tickformat=".1%",
+                hoverformat=".2%",
+            ),
+        )
+
+        return fig
+
+    def _create_monthly_returns_figure(self) -> go.Figure:
+        """创建月度收益图"""
+        fig = self._create_base_figure("Monthly Returns Distribution")
+
+        # 计算收益率和月度收益
+        monthly_returns = (
+            self.funding_curve.with_columns(
+                [
+                    pl.col("funding_curve").pct_change().alias("returns"),
+                    pl.col("time").dt.strftime("%Y-%m").alias("month"),
+                ]
+            )
+            .group_by("month")
+            .agg(pl.col("returns").sum())
+            .sort("month")
+        )
+
+        fig.add_trace(
+            go.Bar(
+                x=monthly_returns.get_column("month"),
+                y=monthly_returns.get_column("returns"),
+                name="Monthly Returns",
+                marker_color=[
+                    "red" if x < 0 else "green"
+                    for x in monthly_returns.get_column("returns")
+                ],
+            )
+        )
+
+        fig.update_layout(
+            yaxis=dict(
+                tickformat=".1%",
+                hoverformat=".2%",
+            ),
+        )
+
+        return fig
 
     def _generate_backtest_params_html(self) -> str:
         """生成回测参数HTML"""
         params = {
-            "commission_rate": f"{self.params['commission']:.3%}",
-            "annual_trading_days": f"{self.params['annual_trading_days']} 天",
-            "indicators": (
-                "所有指标"
+            "Commission Rate": f"{self.params['commission']:.3%}",
+            "Annual Trading Days": f"{self.params['annual_trading_days']} days",
+            "Indicators": (
+                "All indicators"
                 if self.params["indicators"] == "all"
                 else ", ".join(self.params["indicators"])
             ),
@@ -48,16 +271,35 @@ class BacktestVisualizer:
 
     def _generate_data_info_html(self) -> str:
         """生成数据信息HTML"""
-        df = self.funding_curve.to_pandas()
-        start_date = df["time"].min().strftime("%Y-%m-%d")
-        end_date = df["time"].max().strftime("%Y-%m-%d")
-        total_days = (df["time"].max() - df["time"].min()).days
+        df = self.funding_curve
+        start_date = df.select(pl.col("time").min()).item().strftime("%Y-%m-%d")
+        end_date = df.select(pl.col("time").max()).item().strftime("%Y-%m-%d")
+        total_days = (
+            df.select(pl.col("time").max()).item()
+            - df.select(pl.col("time").min()).item()
+        ).days
+
+        # 计算数据频率
+        time_diff = df.select(pl.col("time").diff().median()).item()
+        minutes = time_diff.total_seconds() / 60
+
+        if minutes < 60:  # 小于1小时
+            frequency = f"{minutes:.0f}min"
+        elif minutes < 1440:  # 小于1天
+            frequency = f"{minutes/60:.1f}h"
+        elif minutes < 10080:  # 小于1周
+            frequency = f"{minutes/1440:.1f}d"
+        elif minutes < 43200:  # 小于1月
+            frequency = f"{minutes/10080:.1f}w"
+        else:  # 大于等于1月
+            frequency = f"{minutes/43200:.1f}m"
 
         info = {
-            "回测起始日期": start_date,
-            "回测结束日期": end_date,
-            "回测天数": f"{total_days}天",
-            "数据点数": f"{len(df):,}个",
+            "Start Date": start_date,
+            "End Date": end_date,
+            "Total Days": f"{total_days} days",
+            "Data Points": f"{len(df):,}",
+            "Data Frequency": frequency,
         }
 
         return "\n".join(
@@ -67,214 +309,51 @@ class BacktestVisualizer:
 
     def _generate_metrics_html(self) -> str:
         """生成指标HTML"""
-        metrics_mapping = {
-            "annual_return": ("Annual Return", "年化收益率"),
-            "sharpe_ratio": ("Sharpe Ratio", "夏普比率"),
-            "max_drawdown": ("Maximum Drawdown", "最大回撤"),
-            "max_drawdown_duration": ("Max Drawdown Duration", "最大回撤持续期"),
-            "calmar_ratio": ("Calmar Ratio", "卡玛比率"),
-            "volatility": ("Annual Volatility", "年化波动率"),
-            "sortino_ratio": ("Sortino Ratio", "索提诺比率"),
-            "win_rate": ("Win Rate", "胜率"),
-        }
-
         metrics_html = ""
-        for key, (en_name, zh_name) in metrics_mapping.items():
-            if key in self.results:
-                value = self.results[key]
-                if key in ["annual_return", "max_drawdown", "volatility", "win_rate"]:
-                    formatted_value = f"{value:.2%}"
-                elif key == "max_drawdown_duration":
-                    formatted_value = f"{value:.0f} days"
-                else:
-                    formatted_value = f"{value:.2f}"
 
-                metrics_html += f"""
-                <div class="metric-card">
-                    <div class="metric-value">{formatted_value}</div>
-                    <div class="metric-name" lang="en">{en_name}</div>
-                    <div class="metric-name" lang="zh">{zh_name}</div>
-                </div>
-                """
+        # 从BacktestResult对象获取格式化后的指标值
+        for key, value in self.results.formatted_indicator_values.items():
+            # 将下划线分隔的键转换为标题形式的显示名称
+            display_name = " ".join(word.capitalize() for word in key.split("_"))
+
+            metrics_html += f"""
+            <div class="metric-card">
+                <div class="metric-value">{value}</div>
+                <div class="metric-name">{display_name}</div>
+            </div>
+            """
 
         return metrics_html
 
-    def create_funding_curve_figure(self) -> go.Figure:
-        """创建资金曲线图"""
-        df = self.funding_curve.to_pandas()
+    def _generate_all_figures(self) -> Dict[str, str]:
+        """生成所有图形的HTML代码
 
-        fig = go.Figure()
+        Returns:
+            Dict[str, str]: 图形名称到HTML代码的映射
+        """
+        figures_html = {}
 
-        # 添加资金曲线
-        fig.add_trace(
-            go.Scatter(
-                x=df["time"],
-                y=df["funding_curve"],
-                name="资金曲线",
-                line=dict(color="#1f77b4"),
-            )
-        )
-
-        # 添加最大回撤阴影
-        if "max_drawdown" in self.results:
-            # 计算滚动最大值
-            cummax = df["funding_curve"].cummax()
-            drawdown = (df["funding_curve"] - cummax) / cummax
-
-            # 找到最大回撤结束点（最低点）
-            max_dd_end_idx = drawdown.idxmin()
-
-            # 找到最大回撤开始点（之前的最高点）
-            max_dd_start_idx = df["funding_curve"][:max_dd_end_idx].idxmax()
-
-            # 创建回撤区间的数据
-            dd_region = df[max_dd_start_idx : max_dd_end_idx + 1]
-
-            # 添加回撤区域（使用两条线形成充区域）
-            fig.add_trace(
-                go.Scatter(
-                    x=dd_region["time"],
-                    y=dd_region["funding_curve"],
-                    name=f'最大回撤区间 ({self.results["max_drawdown"]:.1%})',
-                    line=dict(color="rgba(255,0,0,0.5)"),
-                    showlegend=True,
+        # 添加顶部自定义图形
+        for fig_info in self._custom_figures:
+            if fig_info["position"] == "top":
+                figures_html[fig_info["name"]] = fig_info["creator"]().to_html(
+                    full_html=False, include_plotlyjs=False
                 )
+
+        # 添加内置图形
+        for name, creator in self._figure_creators.items():
+            figures_html[name] = creator().to_html(
+                full_html=False, include_plotlyjs=False
             )
 
-            # 添加填充区域
-            fig.add_trace(
-                go.Scatter(
-                    x=dd_region["time"],
-                    y=cummax[max_dd_start_idx : max_dd_end_idx + 1],
-                    fill="tonexty",
-                    mode="none",  # 不显示线条
-                    fillcolor="rgba(255,0,0,0.2)",
-                    showlegend=False,
-                    hoverinfo="skip",
+        # 添加底部自定义图形
+        for fig_info in self._custom_figures:
+            if fig_info["position"] == "bottom":
+                figures_html[fig_info["name"]] = fig_info["creator"]().to_html(
+                    full_html=False, include_plotlyjs=False
                 )
-            )
 
-            # 添加最大回撤起点和终点的标记
-            fig.add_trace(
-                go.Scatter(
-                    x=[df["time"][max_dd_start_idx]],
-                    y=[df["funding_curve"][max_dd_start_idx]],
-                    mode="markers+text",
-                    name="回撤起点",
-                    marker=dict(color="green", size=10, symbol="triangle-up"),
-                    text=[f'高点: {df["funding_curve"][max_dd_start_idx]:.2f}'],
-                    textposition="top center",
-                )
-            )
-
-            fig.add_trace(
-                go.Scatter(
-                    x=[df["time"][max_dd_end_idx]],
-                    y=[df["funding_curve"][max_dd_end_idx]],
-                    mode="markers+text",
-                    name="回撤终点",
-                    marker=dict(color="red", size=10, symbol="triangle-down"),
-                    text=[f'低点: {df["funding_curve"][max_dd_end_idx]:.2f}'],
-                    textposition="bottom center",
-                )
-            )
-
-        # 更新布局
-        fig.update_layout(
-            title="Strategy NAV",
-            xaxis_title="Time",
-            yaxis_title="NAV",
-            showlegend=True,
-            hovermode="x unified",
-            legend=dict(
-                yanchor="top",
-                y=0.99,
-                xanchor="left",
-                x=0.01,
-                bgcolor="rgba(255,255,255,0.8)",
-            ),
-            # 添加网格线
-            xaxis=dict(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor="rgba(128,128,128,0.2)",
-                rangeslider=dict(visible=False),  # 可选：添加时间轴滑块
-            ),
-            yaxis=dict(
-                showgrid=True,
-                gridwidth=1,
-                gridcolor="rgba(128,128,128,0.2)",
-                tickformat=".3f",  # 显示三位小数
-            ),
-            plot_bgcolor="white",  # 设置白色背景
-            hoverlabel=dict(
-                bgcolor="white", font_size=12, font_family="Microsoft YaHei"
-            ),
-        )
-
-        return fig
-
-    def create_drawdown_figure(self) -> go.Figure:
-        """创建回撤图"""
-        df = self.funding_curve.to_pandas()
-        cummax = df["funding_curve"].cummax()
-        drawdown = (df["funding_curve"] - cummax) / cummax
-
-        fig = go.Figure()
-
-        fig.add_trace(
-            go.Scatter(
-                x=df["time"],
-                y=drawdown,
-                fill="tozeroy",
-                name="回撤",
-                line=dict(color="red"),
-            )
-        )
-
-        fig.update_layout(
-            title="Strategy Drawdown",
-            xaxis_title="Time",
-            yaxis_title="Drawdown",
-            showlegend=True,
-            hovermode="x unified",
-        )
-
-        return fig
-
-    def create_monthly_returns_figure(self) -> go.Figure:
-        """创建月度收益图"""
-        df = self.funding_curve.to_pandas()
-        df["returns"] = df["funding_curve"].pct_change()
-        monthly_returns = df.groupby(df["time"].dt.strftime("%Y-%m"))["returns"].sum()
-
-        # 创建颜色列表
-        colors = ["red" if x < 0 else "green" for x in monthly_returns.values]
-
-        fig = go.Figure()
-
-        fig.add_trace(
-            go.Bar(
-                x=monthly_returns.index,
-                y=monthly_returns.values,
-                name="月度收益",
-                marker_color=colors,
-            )
-        )
-
-        fig.update_layout(
-            title="Monthly Returns Distribution",
-            xaxis_title="Month",
-            yaxis_title="Returns",
-            showlegend=True,
-            hovermode="x unified",
-            yaxis=dict(
-                tickformat=".1%",  # 显示为百分比
-                hoverformat=".2%",  # 悬停时显示更精确的百分比
-            ),
-        )
-
-        return fig
+        return figures_html
 
     def generate_html_report(self, output_path: str) -> None:
         """生成HTML回测报告
@@ -282,48 +361,25 @@ class BacktestVisualizer:
         Args:
             output_path: 输出文件路径
         """
-        df = self.results["funding_curve"]
-
-        # 获取数据集统计信息
-        start_date = df["time"].min().strftime("%Y-%m-%d")
-        end_date = df["time"].max().strftime("%Y-%m-%d")
-        total_days = (df["time"].max() - df["time"].min()).days
-        data_points = len(df)
-
         # 读取HTML模板
-        with open(self.template_path, "r", encoding="utf-8") as f:
+        with open(self._template_path, "r", encoding="utf-8") as f:
             html_template = f.read()
 
-        # 生成图表
-        funding_curve_fig = self.create_funding_curve_figure()
-        drawdown_fig = self.create_drawdown_figure()
-        monthly_returns_fig = self.create_monthly_returns_figure()
+        # 生成所有图形的HTML代码
+        figures_html = self._generate_all_figures()
 
-        # 准备替换变量
+        # 准备基础变量
         template_vars = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "commission": f"{self.params['commission']:.3%}",
-            "trading_days": f"{self.params['annual_trading_days']} days",
-            "indicators": (
-                "All"
-                if self.params["indicators"] == "all"
-                else ", ".join(self.params["indicators"])
-            ),
-            "start_date": start_date,
-            "end_date": end_date,
-            "total_days": f"{total_days} days",
-            "data_points": f"{data_points:,}",
+            "backtest_params_html": self._generate_backtest_params_html(),
+            "data_info_html": self._generate_data_info_html(),
             "metrics_html": self._generate_metrics_html(),
-            "funding_curve_div": funding_curve_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "en"}
-            ),
-            "drawdown_div": drawdown_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "en"}
-            ),
-            "monthly_returns_div": monthly_returns_fig.to_html(
-                full_html=False, include_plotlyjs=False, config={"locale": "en"}
-            ),
         }
+
+        # 添加图形HTML代码
+        template_vars.update(
+            {f"{name}_div": html for name, html in figures_html.items()}
+        )
 
         # 使用字符串格式化替换变量
         html_content = html_template
