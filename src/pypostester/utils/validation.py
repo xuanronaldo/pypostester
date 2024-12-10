@@ -4,23 +4,23 @@ from typing import Union, Literal, List
 import polars as pl
 import pandas as pd
 from pypostester.core.constants import REQUIRED_COLUMNS
-from pypostester.indicators.registry import registry
+from pypostester.indicators.registry import indicator_registry
 
 
 class ValidationError(Exception):
-    """数据验证错误"""
+    """Exception raised for errors in the data validation process."""
 
     pass
 
 
 def validate_commission(commission: float) -> None:
-    """验证交易成本
+    """Validate commission rate
 
     Args:
-        commission: 交易成本率
+        commission: Commission rate as a float
 
     Raises:
-        ValidationError: 当交易成本无效时
+        ValidationError: If commission is not a number or not between 0 and 1
     """
     if not isinstance(commission, (int, float)):
         raise ValidationError("Commission must be a number")
@@ -29,13 +29,13 @@ def validate_commission(commission: float) -> None:
 
 
 def validate_annual_trading_days(days: int) -> None:
-    """验证年化交易日数
+    """Validate annual trading days
 
     Args:
-        days: 年化交易日数
+        days: Number of trading days in a year
 
     Raises:
-        ValidationError: 当交易日数无效时
+        ValidationError: If days is not a positive integer or exceeds 365
     """
     if not isinstance(days, int):
         raise ValidationError("Annual trading days must be an integer")
@@ -46,73 +46,85 @@ def validate_annual_trading_days(days: int) -> None:
 
 
 def validate_indicators(indicators: Union[str, List[str]]) -> List[str]:
-    """验证指标参数并返回排序后的指标列表
+    """Validate indicator parameters and return sorted list of indicators including dependencies
 
     Args:
-        indicators: 指标名称或列表
-        available_indicators: 可用指标列表
+        indicators: Indicator name or list of names
 
     Returns:
-        List[str]: 排序后的指标列表
+        List[str]: Sorted list of indicators including all dependencies
 
     Raises:
-        ValidationError: 当指标参数无效时
+        ValidationError: If indicators parameter is invalid
     """
     if indicators != "all" and not isinstance(indicators, (list, tuple)):
         raise ValidationError("Indicators must be 'all' or a list of indicator names")
 
-    sorted_indicators = registry.sorted_indicators
+    sorted_indicators = indicator_registry.sorted_indicators
 
     if indicators == "all":
         return sorted_indicators
 
-    # 验证所有指标是否有效
-    invalid_indicators = set(indicators) - set(registry.available_indicators)
+    # Validate all indicators are available
+    invalid_indicators = set(indicators) - set(indicator_registry.available_indicators)
     if invalid_indicators:
         raise ValidationError(
             f"Invalid indicator names: {list(invalid_indicators)}. "
-            f"Available indicators: {registry.available_indicators}"
+            f"Available indicators: {indicator_registry.available_indicators}"
         )
 
-    # 按照registry中的排序返回指定的指标
-    return [name for name in sorted_indicators if name in indicators]
+    # Collect all required indicators (including dependencies)
+    required_indicators = set(indicators)
+    pending_indicators = list(indicators)
+
+    while pending_indicators:
+        indicator = pending_indicators.pop()
+        indicator_cls = indicator_registry.get_indicator(indicator)
+        if len(indicator_cls.requires) > 0:
+            for required in indicator_cls.requires:
+                if required not in required_indicators:
+                    required_indicators.add(required)
+                    pending_indicators.append(required)
+
+    # Return specified indicators (including dependencies) in registry order
+    return [name for name in sorted_indicators if name in required_indicators]
 
 
 def validate_and_convert_input(
     df: Union[pl.DataFrame, pd.DataFrame], data_type: Literal["close", "position"]
 ) -> pl.DataFrame:
-    """验证并转换输入数据
+    """Validate and convert input data
 
     Args:
-        df: 输入数据框
-        data_type: 数据类型，'close' 或 'position'
+        df: Input DataFrame
+        data_type: Data type, either 'close' or 'position'
 
     Returns:
-        pl.DataFrame: 验证并转换后的 Polars DataFrame
+        pl.DataFrame: Validated and converted Polars DataFrame
 
     Raises:
-        ValidationError: 当数据不符合要求时
+        ValidationError: If data does not meet requirements
     """
     try:
-        # 转换为 Polars DataFrame
+        # Convert to Polars DataFrame
         if isinstance(df, pd.DataFrame):
             df = pl.from_pandas(df)
 
-        # 验证必需列
+        # Validate required columns
         required_cols = REQUIRED_COLUMNS[data_type]
         missing_cols = [col for col in required_cols if col not in df.columns]
         if missing_cols:
             raise ValidationError(f"Missing required columns: {missing_cols}")
 
-        # 验证时间列类型
+        # Validate time column type
         if not pl.Series(df["time"]).dtype.is_temporal():
             raise ValidationError("Time column must be datetime type")
 
-        # 验证时间排序
+        # Validate time sorting
         if not pl.Series(df["time"]).is_sorted():
             df = df.sort("time")
 
-        # 验证持仓值范围（如果是持仓数据）
+        # Validate position value range (if position data)
         if data_type == "position":
             position_values = df["position"]
             if (position_values < -1).any() or (position_values > 1).any():
@@ -127,14 +139,14 @@ def validate_and_convert_input(
 
 
 def validate_time_alignment(close_df: pl.DataFrame, position_df: pl.DataFrame) -> None:
-    """验证时间对齐
+    """Validate time alignment
 
     Args:
-        close_df: 价格数据
-        position_df: 仓位数据
+        close_df: Price data DataFrame
+        position_df: Position data DataFrame
 
     Raises:
-        ValidationError: 当时间戳不对齐时
+        ValidationError: If timestamps are not aligned
     """
     close_times = set(close_df["time"])
     position_times = set(position_df["time"])
@@ -144,16 +156,16 @@ def validate_time_alignment(close_df: pl.DataFrame, position_df: pl.DataFrame) -
 
 
 def validate_data_type(data) -> Union[float, pl.DataFrame]:
-    """验证数据类型是否为 float 或 polars.DataFrame
+    """Validate data type is either float or polars.DataFrame
 
     Args:
-        data: 要验证的数据
+        data: Data to validate
 
     Returns:
-        Union[float, pl.DataFrame]: 验证通过的数据
+        Union[float, pl.DataFrame]: Validated data
 
     Raises:
-        ValidationError: 当数据类型无效时
+        ValidationError: If data type is invalid
     """
     if isinstance(data, (float, pl.DataFrame)):
         return data

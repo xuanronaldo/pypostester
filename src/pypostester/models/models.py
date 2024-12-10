@@ -5,49 +5,69 @@ from dataclasses import dataclass
 
 @dataclass
 class BacktestResult:
-    """回测结果模型类"""
+    """Backtest result model class"""
 
-    dataframes: Dict[str, pl.DataFrame]
-    indicator_values: Dict[str, float]
-    formatted_indicator_values: Dict[str, str]
+    _dataframes: Dict[str, pl.DataFrame]
+    _indicator_values: Dict[str, float]
+    _formatted_indicator_values: Dict[str, str]
 
     @property
     def funding_curve(self) -> pl.DataFrame:
-        """获取资金曲线DataFrame"""
-        return self.dataframes["funding_curve"]
+        """Get funding curve DataFrame"""
+        return self._dataframes["merged_df"].select(
+            pl.col("time"), pl.col("funding_curve")
+        )
 
     @property
-    def get_dataframes(self) -> Dict[str, pl.DataFrame]:
-        """获取所有数据框"""
-        return self.dataframes
+    def dataframes(self) -> Dict[str, pl.DataFrame]:
+        """Get all DataFrames"""
+        return self._dataframes
 
     @property
+    def indicator_values(self) -> Dict[str, float]:
+        """Get indicator values"""
+        return self._indicator_values
+
+    @property
+    def formatted_indicator_values(self) -> Dict[str, str]:
+        """Get formatted indicator values"""
+        return self._formatted_indicator_values
+
     def get_dataframe(self, indicator: str) -> pl.DataFrame:
-        """获取指定数据框"""
-        return self.dataframes[indicator]
+        """Get specific DataFrame by indicator name
 
-    @property
-    def get_indicator_values(self) -> Dict[str, float]:
-        """获取指标值"""
-        return self.indicator_values
+        Args:
+            indicator: Name of the indicator
 
-    @property
-    def get_formatted_indicator_values(self) -> Dict[str, str]:
-        """获取格式化指标值"""
-        return self.formatted_indicator_values
+        Returns:
+            DataFrame for the specified indicator
+        """
+        return self._dataframes[indicator]
 
-    @property
     def get_indicator_value(self, indicator: str) -> float:
-        """获取指标值"""
-        return self.indicator_values[indicator]
+        """Get specific indicator value
 
-    @property
+        Args:
+            indicator: Name of the indicator
+
+        Returns:
+            Raw value of the specified indicator
+        """
+        return self._indicator_values[indicator]
+
     def get_formatted_indicator_value(self, indicator: str) -> str:
-        """获取格式化指标值"""
-        return self.formatted_indicator_values[indicator]
+        """Get specific formatted indicator value
+
+        Args:
+            indicator: Name of the indicator
+
+        Returns:
+            Formatted value of the specified indicator
+        """
+        return self._formatted_indicator_values[indicator]
 
     def print(self) -> None:
-        """打印回测结果，以表格形式展示指标值"""
+        """Print backtest results in tabular format"""
         indicators_df = pl.DataFrame(
             {
                 "indicator": list(self.formatted_indicator_values.keys()),

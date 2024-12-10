@@ -4,32 +4,47 @@ import polars as pl
 
 
 class BaseIndicator(ABC):
-    """指标基类"""
+    """Base class for indicators"""
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """指标名称"""
+        """Indicator name
+
+        Returns:
+            Unique identifier string for the indicator
+        """
         pass
 
     @property
     def requires(self) -> Set[str]:
-        """依赖的其他指标"""
+        """Dependencies on other indicators
+
+        Returns:
+            Set of indicator names that this indicator depends on
+        """
         return set()
 
     @abstractmethod
     def calculate(self, cache: Dict) -> Union[float, pl.DataFrame]:
-        """计算指标值"""
+        """Calculate indicator value
+
+        Args:
+            cache: Dictionary containing calculation cache and intermediate results
+
+        Returns:
+            Either a float value or a DataFrame containing the calculation results
+        """
         pass
 
     @abstractmethod
     def format(self, value: float) -> str:
-        """格式化指标值
+        """Format indicator value
 
         Args:
-            value: 需要格式化的指标值
+            value: Raw indicator value to be formatted
 
         Returns:
-            格式化后的字符串
+            Formatted string representation of the value
         """
         pass

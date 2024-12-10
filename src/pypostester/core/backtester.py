@@ -1,17 +1,9 @@
 from typing import Union, Dict, List
 import polars as pl
 import pandas as pd
-from pypostester.indicators.registry import registry
+from pypostester.utils.validation import *
+from pypostester.indicators.registry import indicator_registry
 from pypostester.indicators.base import BaseIndicator
-from pypostester.utils.validation import (
-    validate_and_convert_input,
-    ValidationError,
-    validate_time_alignment,
-    validate_commission,
-    validate_annual_trading_days,
-    validate_indicators,
-    validate_data_type,
-)
 from pypostester.models.models import BacktestResult
 
 
@@ -24,12 +16,12 @@ class PositionBacktester:
         indicators: Union[str, List[str]] = "all",
     ) -> None:
         try:
-            # 验证参数
+            # Validate parameters
             validate_commission(commission)
             validate_annual_trading_days(annual_trading_days)
             self.sorted_indicators = validate_indicators(indicators)
 
-            # 验证并转换输入数据
+            # Validate and convert input data
             self.close_df = validate_and_convert_input(close_df, data_type="close")
             self.commission = commission
             self.annual_trading_days = annual_trading_days
@@ -39,24 +31,31 @@ class PositionBacktester:
             raise ValueError(f"Invalid input: {str(e)}")
 
     def _calculate_funding_curve(self, merged_df: pl.DataFrame) -> pl.DataFrame:
-        """计算资金曲线"""
-        # 计算收益率
+        """Calculate funding curve
+
+        Args:
+            merged_df: DataFrame containing close prices and positions
+
+        Returns:
+            DataFrame with time, funding curve and returns
+        """
+        # Calculate returns
         returns = merged_df["close"].pct_change().fill_null(0)
 
-        # 计算持仓收益
+        # Calculate position returns
         position_returns = returns * merged_df["position"].shift(1).fill_null(0)
 
-        # 计算换仓成本
+        # Calculate transaction costs
         position_changes = merged_df["position"].diff().abs().fill_null(0)
         transaction_costs = position_changes * self.commission
 
-        # 计算净收益
+        # Calculate net returns
         net_returns = position_returns - transaction_costs
 
-        # 计算资金曲线
+        # Calculate funding curve
         funding_curve = (1 + net_returns).cum_prod()
 
-        # 创建结果DataFrame
+        # Create result DataFrame
         result = pl.DataFrame(
             {
                 "time": merged_df["time"],
@@ -68,26 +67,33 @@ class PositionBacktester:
         return result
 
     def add_indicator(self, indicator: BaseIndicator) -> None:
-        """添加自定义指标"""
-        registry.register(indicator)
-
-    def run(self, position_df: Union[pl.DataFrame, pd.DataFrame]) -> BacktestResult:
-        """执行回测并返回结果
+        """Add custom indicator
 
         Args:
-            position_df: 包含仓位数据的DataFrame
+            indicator: Custom indicator instance inheriting from BaseIndicator
+        """
+        indicator_registry.register(indicator)
+
+    def run(self, position_df: Union[pl.DataFrame, pd.DataFrame]) -> BacktestResult:
+        """Run backtest and return results
+
+        Args:
+            position_df: DataFrame containing position data
 
         Returns:
-            BacktestResult: 回测结果对象
+            BacktestResult: Object containing backtest results
+
+        Raises:
+            ValueError: If position data is invalid
         """
         try:
-            # 验证并转换position数据
+            # Validate and convert position data
             position_df = validate_and_convert_input(position_df, data_type="position")
 
-            # 验证时间对齐
+            # Validate time alignment
             validate_time_alignment(self.close_df, position_df)
 
-            # 合并数据并作为局部变量
+            # Merge data and sort by time
             merged_df = self.close_df.join(
                 position_df.select(["time", "position"]), on="time", how="inner"
             ).sort("time")
@@ -95,96 +101,100 @@ class PositionBacktester:
         except ValidationError as e:
             raise ValueError(f"Invalid position input: {str(e)}")
 
-        # 计算资金曲线
-        funding_curve = self._calculate_funding_curve(merged_df)
+        # Calculate funding curve
+        merged_df = merged_df.join(self._calculate_funding_curve(merged_df), on="time")
 
-        # 准备缓存
-        cache = self._prepare_cache(funding_curve)
+        # Prepare cache
+        cache = self._prepare_cache(merged_df)
 
-        # 计算指标
+        # Calculate indicators
         results = self._calculate_indicators(cache)
 
-        # 将results分成两个字典
+        # Split results into two dictionaries
         dataframes = {k: v[k] for k, v in results["dataframes"].items()}
         indicators = {k: v["value"] for k, v in results["indicators"].items()}
         formatted_indicators = {
             k: v["formatted_value"] for k, v in results["indicators"].items()
         }
 
-        # 创建并返回BacktestResult对象
+        # Create and return BacktestResult object
         return BacktestResult(
-            dataframes={"funding_curve": funding_curve, **dataframes},
-            indicator_values=indicators,
-            formatted_indicator_values=formatted_indicators,
+            _dataframes={"merged_df": merged_df, **dataframes},
+            _indicator_values=indicators,
+            _formatted_indicator_values=formatted_indicators,
         )
 
-    def _prepare_cache(self, funding_curve: pl.DataFrame) -> Dict:
-        """准备计算缓存
+    def _prepare_cache(self, merged_df: pl.DataFrame) -> Dict:
+        """Prepare calculation cache
 
         Args:
-            funding_curve: 包含 time、funding_curve 和 returns 列的 DataFrame
+            merged_df: DataFrame containing time, funding_curve and returns columns
 
         Returns:
-            Dict: 包含计算所需缓存数据的字典
+            Dict containing cached data needed for calculations
         """
-        times = funding_curve.get_column("time")
+        times = merged_df.get_column("time")
 
-        # 计算总天数
+        # Calculate total days
         total_days = (times[-1] - times[0]).total_seconds() / (24 * 3600)
-        total_days = max(total_days, 1)  # 确保至少为1天
+        total_days = max(total_days, 1)  # Ensure at least 1 day
 
-        # 计算数据频率（以天为单位）
+        # Calculate data frequency (in days)
         time_diffs = times.diff().drop_nulls()
-        avg_interval = float(time_diffs.mean().total_seconds()) / (
-            24 * 3600
-        )  # 转换为天
+        avg_interval = float(time_diffs.mean().total_seconds()) / (24 * 3600)
 
-        # 计算每天的周期数
+        # Calculate periods per day
         periods_per_day = 1 / avg_interval if avg_interval > 0 else 1
 
         return {
-            "curve_df": funding_curve,
+            "merged_df": merged_df,
             "annual_trading_days": self.annual_trading_days,
             "total_days": total_days,
-            "returns": funding_curve.get_column("returns"),
-            "periods_per_day": periods_per_day,  # 每天的周期数
+            "periods_per_day": periods_per_day,
         }
 
     def _calculate_indicators(self, cache: Dict) -> Dict:
-        """计算指标
+        """Calculate indicators
 
         Args:
-            sorted_indicators: 按依赖关系排的指标列表
-            cache: 计算缓存
+            cache: Calculation cache dictionary
 
         Returns:
-            Dict: 计算结果字典
+            Dict containing calculation results with both DataFrames and indicator values
         """
         result = dict()
         result["dataframes"] = dict()
         result["indicators"] = dict()
         for indicator in self.sorted_indicators:
             value = validate_data_type(
-                registry.get_indicator(indicator).calculate(cache)
+                indicator_registry.get_indicator(indicator).calculate(cache)
             )
+
+            if self.indicators != "all" and indicator not in self.indicators:
+                continue
+
             if isinstance(value, pl.DataFrame):
                 result["dataframes"][indicator] = value
             else:
-                formatted_value = registry.get_indicator(indicator).format(value)
+                formatted_value = indicator_registry.get_indicator(indicator).format(
+                    value
+                )
                 result["indicators"][indicator] = {
                     "value": value,
                     "formatted_value": formatted_value,
                 }
+
         return result
 
-    def get_params(self) -> Dict:
-        """获取回测器参数
+    @property
+    def params(self) -> Dict:
+        """Get backtester parameters
 
         Returns:
-            Dict: 包含回测器参数的字典，包括：
-                - commission: 手续费率
-                - annual_trading_days: 年化交易天数
-                - indicators: 计算的指标列表
+            Dict containing backtester parameters:
+                - commission: Commission rate
+                - annual_trading_days: Number of trading days per year
+                - indicators: List of indicators to calculate
         """
         return {
             "commission": self.commission,
